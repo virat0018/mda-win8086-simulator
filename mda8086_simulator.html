@@ -754,8 +754,10 @@ let segState = 0xFF;    // last byte to PPIA (CS2), active-low segments
 //   matGreen <- PPIA (18H)  : GREEN plane, row data (held FF/off by red-only programs; both on = orange)
 //   matScan  <- PPIC (1CH)  : one-hot column scan; data planes active-low (0 = dot lit)
 let matRed = 0xFF, matGreen = 0xFF, matScan = 0;
-let stepperAngle = 0;
+let stepperStep = 0;      // net step count; each step = 1.8° (200 steps per revolution)
+const STEP_DEG = 1.8;     // real stepper resolution: 1.8° per step
 let lastCoilAngle = null; // angular position (radians) of the last energized coil set, for direction detection
+let stepperFirstPending = false; // the very first coil pulse is counted as a step once its direction is known
 
 // build LEDs (4, fixed physical colours L->R: Red, Green, Yellow, Red — PPIB bits 0..3)
 const LED_COLORS = ['c-red', 'c-green', 'c-yellow', 'c-red'];
@@ -847,16 +849,23 @@ function renderStepper(byte) {
     if (((nib >> i) & 1) === 0) { const a = i * Math.PI / 2; sx += Math.cos(a); sy += Math.sin(a); energized++; }
   }
   const coilAngle = (energized === 0 || energized === 4) ? null : Math.atan2(sy, sx);
+  // The first coil pulse is one step too; count it once the 2nd pulse reveals the direction,
+  // so N pulses == N steps (e.g. 25 pulses -> 25 * 1.8 = 45 deg).
+  if (lastCoilAngle === null && coilAngle !== null) stepperFirstPending = true;
   if (lastCoilAngle !== null && coilAngle !== null) {
     let d = coilAngle - lastCoilAngle;
     while (d > Math.PI) d -= 2 * Math.PI;      // shortest signed arc
     while (d <= -Math.PI) d += 2 * Math.PI;
-    if (d > 1e-6) stepperAngle = (stepperAngle - 45 + 360) % 360;       // forward (ROL) -> counter-clockwise
-    else if (d < -1e-6) stepperAngle = (stepperAngle + 45) % 360;       // reverse (ROR) -> clockwise
+    if (d > 1e-6 || d < -1e-6) {
+      const inc = stepperFirstPending ? 2 : 1; // +1 for this pulse, +1 for the first (same direction)
+      stepperStep += (d > 0) ? -inc : inc;     // forward (ROL) -> CCW ; reverse (ROR) -> CW
+      stepperFirstPending = false;
+    }
   }
   if (coilAngle !== null) lastCoilAngle = coilAngle;
-  document.getElementById('rotor').style.transform = `rotate(${stepperAngle}deg)`;
-  document.getElementById('angleLabel').textContent = stepperAngle + '°';
+  const deg = (((stepperStep * STEP_DEG) % 360) + 360) % 360; // exact multiple of 1.8°, no float drift
+  document.getElementById('rotor').style.transform = `rotate(${deg}deg)`;
+  document.getElementById('angleLabel').textContent = deg.toFixed(1) + '°';
 }
 function renderRegs(m) {
   document.getElementById('rAX').textContent = m.reg.AX.toString(16).padStart(4,'0').toUpperCase();
@@ -930,10 +939,10 @@ document.getElementById('btnReset').onclick = () => {
   if (!asmd) return;
   stop();
   machine = new Machine(asmd, makeIO());
-  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; stepperAngle = 0; lastCoilAngle = null;
+  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; stepperStep = 0; lastCoilAngle = null; stepperFirstPending = false;
   renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot();
   document.getElementById('rotor').style.transform = 'rotate(0deg)';
-  document.getElementById('angleLabel').textContent = '0°';
+  document.getElementById('angleLabel').textContent = '0.0°';
   renderRegs(machine);
   setStatus('Reset.', '');
 };
