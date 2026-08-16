@@ -442,6 +442,30 @@ class Machine {
         if (this.isByteReg(dst)) this.setByteReg(dst, v);
         break;
       }
+      case 'SHL': case 'SAL': {
+        const dst = a[0];
+        const cnt = a.length > 1 ? (this.resolve(a[1]) & 0xFF) : 1;
+        const byte = this.isByteReg(dst);
+        const mask = byte ? 0xFF : 0xFFFF, msb = byte ? 0x80 : 0x8000;
+        let v = this.resolve(dst) & mask, cf = this.CF;
+        for (let k = 0; k < cnt; k++) { cf = (v & msb) ? 1 : 0; v = (v << 1) & mask; }
+        if (cnt > 0) this.CF = cf;
+        if (byte) this.setByteReg(dst, v); else this.reg[dst.toUpperCase()] = v;
+        this.ZF = v === 0 ? 1 : 0;
+        break;
+      }
+      case 'SHR': {
+        const dst = a[0];
+        const cnt = a.length > 1 ? (this.resolve(a[1]) & 0xFF) : 1;
+        const byte = this.isByteReg(dst);
+        const mask = byte ? 0xFF : 0xFFFF;
+        let v = this.resolve(dst) & mask, cf = this.CF;
+        for (let k = 0; k < cnt; k++) { cf = v & 1; v = (v >> 1) & mask; }
+        if (cnt > 0) this.CF = cf;
+        if (byte) this.setByteReg(dst, v); else this.reg[dst.toUpperCase()] = v;
+        this.ZF = v === 0 ? 1 : 0;
+        break;
+      }
       case 'PUSH': this.stack.push(this.resolve(a[0])); break;
       case 'POP': {
         const v = this.stack.pop();
