@@ -755,8 +755,7 @@ let segState = 0xFF;    // last byte to PPIA (CS2), active-low segments
 //   matScan  <- PPIC (1CH)  : one-hot column scan; data planes active-low (0 = dot lit)
 let matRed = 0xFF, matGreen = 0xFF, matScan = 0;
 let stepperAngle = 0;
-let lastStepPattern = null;
-const STEP_SEQ = ["1110","1101","1011","0111"]; // one full-step cycle reference (order doesn't matter for angle demo)
+let lastCoilAngle = null; // angular position (radians) of the last energized coil set, for direction detection
 
 // build LEDs (4, fixed physical colours L->R: Red, Green, Yellow, Red — PPIB bits 0..3)
 const LED_COLORS = ['c-red', 'c-green', 'c-yellow', 'c-red'];
@@ -839,11 +838,23 @@ function renderMatrixDot() {
   }
 }
 function renderStepper(byte) {
-  const pattern = (byte & 0x0F).toString(2).padStart(4, '0');
-  if (lastStepPattern !== null && pattern !== lastStepPattern) {
-    stepperAngle = (stepperAngle + 45) % 360;
+  // Direction-aware: the 4 coils sit at 0/90/180/270 deg on the low nibble (active-low, 0 = energized).
+  // Find the angular position of the energized coil(s), then step the rotor along the SHORTEST arc toward
+  // it. Advancing the coil sequence one way (e.g. ROL) turns clockwise; the other way (ROR) turns CCW.
+  const nib = byte & 0x0F;
+  let sx = 0, sy = 0, energized = 0;
+  for (let i = 0; i < 4; i++) {
+    if (((nib >> i) & 1) === 0) { const a = i * Math.PI / 2; sx += Math.cos(a); sy += Math.sin(a); energized++; }
   }
-  lastStepPattern = pattern;
+  const coilAngle = (energized === 0 || energized === 4) ? null : Math.atan2(sy, sx);
+  if (lastCoilAngle !== null && coilAngle !== null) {
+    let d = coilAngle - lastCoilAngle;
+    while (d > Math.PI) d -= 2 * Math.PI;      // shortest signed arc
+    while (d <= -Math.PI) d += 2 * Math.PI;
+    if (d > 1e-6) stepperAngle = (stepperAngle - 45 + 360) % 360;       // forward (ROL) -> counter-clockwise
+    else if (d < -1e-6) stepperAngle = (stepperAngle + 45) % 360;       // reverse (ROR) -> clockwise
+  }
+  if (coilAngle !== null) lastCoilAngle = coilAngle;
   document.getElementById('rotor').style.transform = `rotate(${stepperAngle}deg)`;
   document.getElementById('angleLabel').textContent = stepperAngle + '°';
 }
@@ -919,7 +930,7 @@ document.getElementById('btnReset').onclick = () => {
   if (!asmd) return;
   stop();
   machine = new Machine(asmd, makeIO());
-  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; stepperAngle = 0; lastStepPattern = null;
+  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; stepperAngle = 0; lastCoilAngle = null;
   renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot();
   document.getElementById('rotor').style.transform = 'rotate(0deg)';
   document.getElementById('angleLabel').textContent = '0°';
