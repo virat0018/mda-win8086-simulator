@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MDA-Win8086 Kit Simulator</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ec; --dim: #8b93a3; --accent: #4f8cff; --green: #22c55e;
+    --amber: #f5b301; --red: #ef4444; --mono: 'SF Mono', Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, sans-serif; margin: 0; padding: 16px; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 2px; }
+  .sub { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
+  .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); margin: 0 0 10px; font-weight: 600; }
+  textarea { width: 100%; height: 320px; background: #0b0d12; color: #d7e0f0; border: 1px solid var(--border);
+    border-radius: 8px; font-family: var(--mono); font-size: 12.5px; padding: 10px; resize: vertical; line-height: 1.5; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 7px;
+    padding: 7px 12px; font-size: 12.5px; cursor: pointer; font-weight: 500; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  select { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font-size: 12.5px; }
+  label.small { font-size: 11px; color: var(--dim); }
+  #status { font-family: var(--mono); font-size: 12px; padding: 8px 10px; border-radius: 6px; background: #0b0d12; border: 1px solid var(--border); margin-top: 10px; white-space: pre-wrap; min-height: 18px; }
+  #status.err { color: var(--red); }
+  #status.ok { color: var(--green); }
+  .devices { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  .peri { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .leds { display: flex; gap: 10px; }
+  .led { width: 26px; height: 26px; border-radius: 50%; background: #2a1010; border: 1px solid #3a1a1a; box-shadow: inset 0 0 4px #000; transition: all .08s; }
+  /* Fix 2: fixed-colour LED bank — physical order Red, Green, Yellow, Red; active-high on PPIB bits 0-3 */
+  .led.c-red    { background: #2a1010; border-color: #3a1a1a; }
+  .led.c-green  { background: #0f2416; border-color: #183a24; }
+  .led.c-yellow { background: #2a2410; border-color: #3a341a; }
+  .led.c-red.on    { background: radial-gradient(circle at 35% 30%, #ff8a8a, var(--red));   box-shadow: 0 0 10px var(--red); }
+  .led.c-green.on  { background: radial-gradient(circle at 35% 30%, #a5f5b8, var(--green)); box-shadow: 0 0 10px var(--green); }
+  .led.c-yellow.on { background: radial-gradient(circle at 35% 30%, #ffe98a, var(--amber)); box-shadow: 0 0 10px var(--amber); }
+  .seg-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  svg .seg { fill: #2a1010; transition: fill .08s; }
+  svg .seg.on { fill: #ff3b3b; filter: drop-shadow(0 0 3px #ff3b3b); }
+  .matrix { display: grid; grid-template-columns: repeat(8, 16px); grid-template-rows: repeat(8, 16px); gap: 3px; background: #05060a; padding: 8px; border-radius: 6px; }
+  .dot { width: 16px; height: 16px; border-radius: 50%; background: #1a1a1a; }
+  .dot.on { background: radial-gradient(circle at 35% 30%, #ffa5a5, #ff2020); box-shadow: 0 0 5px #ff2020; }
+  /* Fix 1: bi-colour dot matrix — .on = red (PPIB plane), .green = green (PPIA plane), .orange = both planes on */
+  .dot.green  { background: radial-gradient(circle at 35% 30%, #a5ffb0, #16c743); box-shadow: 0 0 5px #16c743; }
+  .dot.orange { background: radial-gradient(circle at 35% 30%, #ffd9a0, #ff8c00); box-shadow: 0 0 6px #ff8c00; }
+  .stepper-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .rotor-dial { width: 90px; height: 90px; border-radius: 50%; border: 3px solid #444; position: relative; background: #0b0d12; }
+  .rotor-needle { position: absolute; width: 3px; height: 40px; background: var(--accent); left: 50%; top: 5px; transform-origin: 50% 40px; margin-left: -1.5px; transition: transform .15s; border-radius: 2px; }
+  .keypad { display: grid; grid-template-columns: repeat(5, 40px); gap: 6px; }
+  .keypad button { width: 40px; height: 30px; padding: 0; font-family: var(--mono); }
+  .keypad button.wide { grid-column: span 1; }
+  .reg-table { font-family: var(--mono); font-size: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 12px; }
+  .reg-table div span { color: var(--dim); }
+  .flag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; margin-left: 6px; background: var(--panel2); }
+  .flag.set { background: var(--accent); color: #fff; }
+  .badge { font-size: 10px; color: var(--dim); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+  .footnote { font-size: 11px; color: var(--dim); margin-top: 8px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<h1>MDA-Win8086 Kit Simulator <span style="font-weight:400; color:var(--dim); font-size:12px;">— by Hamza Alshafei</span></h1>
+<div class="sub">Write 8086 assembly in MDA-WinIDE8086 syntax, run it, watch it drive the virtual board.</div>
+
+<div class="layout">
+
+  <div class="panel">
+    <h2>Assembly Source</h2>
+    <div class="row" style="margin-top:0; margin-bottom:8px;">
+      <label class="small">Load example:</label>
+      <select id="exampleSelect">
+        <option value="">— choose —</option>
+        <option value="led">LED bank (Lab1, Task 1)</option>
+        <option value="sevenseg">7-Segment countdown (Lab1)</option>
+        <option value="matrix2">Dot Matrix (MATRIX_2.ASM)</option>
+        <option value="matrixcolor">Dot Matrix colour: red / green / orange (demo)</option>
+        <option value="stepper">Stepper motor (MicroLab2)</option>
+        <option value="keypad">Keypad read demo</option>
+      </select>
+    </div>
+    <textarea id="src" spellcheck="false"></textarea>
+    <div class="row">
+      <button class="primary" id="btnAssemble">Assemble</button>
+      <button id="btnRun" disabled>Run</button>
+      <button id="btnStep" disabled>Step</button>
+      <button id="btnStop" disabled>Stop</button>
+      <button id="btnReset" disabled>Reset</button>
+      <label class="small" style="margin-left:auto;">Speed</label>
+      <input type="range" id="speed" min="1" max="100" value="60" style="width:100px;">
+    </div>
+    <div id="status">Load an example or paste your .ASM, then Assemble.</div>
+    <div class="reg-table" style="margin-top:10px;">
+      <div><span>AX</span> <b id="rAX">0000</b></div>
+      <div><span>BX</span> <b id="rBX">0000</b></div>
+      <div><span>CX</span> <b id="rCX">0000</b></div>
+      <div><span>DX</span> <b id="rDX">0000</b></div>
+      <div><span>SI</span> <b id="rSI">0000</b></div>
+      <div><span>DI</span> <b id="rDI">0000</b></div>
+    </div>
+    <div style="margin-top:6px;">
+      <span class="small">Flags:</span>
+      <span class="flag" id="fZF">ZF</span>
+      <span class="flag" id="fCF">CF</span>
+      <span class="badge" id="stepCount">0 steps</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Board</h2>
+    <div class="devices">
+
+      <div class="peri">
+        <div>
+          <div class="small" style="margin-bottom:6px;">LEDs <span class="badge">PPIB (port 1BH), bits 0–3, active-high</span></div>
+          <div class="leds" id="leds"></div>
+          <div class="footnote">Physical order (left→right): <b>Red, Green, Yellow, Red</b> — confirmed by the manual's LED demo (p.45) and Fig 1-1 (LED11–14 via R34–37 to GND ⇒ active-high). Bit map from Lab1 source (image5/image8): PPIB bit0=Red, bit1=Green, bit2=Yellow, bit3=Red. The 4th LED (bit3, 2nd red) is never driven by the lab task, so its bit is inferred by elimination.</div>
+        </div>
+      </div>
+
+      <div class="peri">
+        <div class="seg-wrap">
+          <div class="small" style="margin-bottom:6px;">7-Segment <span class="badge">PPIA (port 19H)</span></div>
+          <svg width="60" height="100" viewBox="0 0 60 100" id="sevenSeg">
+            <polygon class="seg" id="seg-a" points="12,6 44,6 38,12 18,12"/>
+            <polygon class="seg" id="seg-b" points="46,8 52,14 46,46 40,42 40,16"/>
+            <polygon class="seg" id="seg-c" points="46,52 52,58 46,90 40,86 40,58"/>
+            <polygon class="seg" id="seg-d" points="12,92 44,92 38,86 18,86"/>
+            <polygon class="seg" id="seg-e" points="8,52 14,58 14,86 8,90 2,58"/>
+            <polygon class="seg" id="seg-f" points="8,8 14,14 14,42 8,46 2,14"/>
+            <polygon class="seg" id="seg-g" points="12,46 44,46 38,52 18,52 12,52 18,42"/>
+            <circle class="seg" id="seg-dp" cx="54" cy="90" r="3"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="peri">
+        <div>
+          <div class="small" style="margin-bottom:6px;">Dot Matrix 8x8 <span class="badge">CS1: PPIB=red, PPIA=green rows (side); PPIC=column scan (bottom)</span></div>
+          <div class="matrix" id="matrix"></div>
+        </div>
+      </div>
+
+      <div class="peri">
+        <div class="stepper-wrap">
+          <div class="small">Stepper Motor <span class="badge">PPIB (port 1BH), 4-bit coil pattern</span></div>
+          <div class="rotor-dial"><div class="rotor-needle" id="rotor"></div></div>
+          <div class="small" id="angleLabel">0°</div>
+        </div>
+      </div>
+
+      <div class="peri">
+        <div>
+          <div class="small" style="margin-bottom:6px;">Keypad <span class="badge">port 01H</span></div>
+          <div class="keypad" id="keypad"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+// MDA-Win8086 assembly engine: parser + semantic interpreter
+// Supports the instruction/directive subset used in Hamza's lab files.
+
+function assemble(source) {
+  const rawLines = source.split(/\r?\n/);
+  const lines = [];
+  const equs = {};
+  const labels = {};
+  const mem = []; // flat byte memory for DB data
+  const dataLabels = {}; // label -> mem index
+
+  // Strip comments, split label/op/operands, but keep DB handling special (multi-line data)
+  // First pass: tokenize each line into {label, op, args, raw}
+  for (let raw of rawLines) {
+    let line = raw.split(';')[0];
+    if (!line.trim()) continue;
+    lines.push(line);
+  }
+
+  // Pass A: extract EQUs and DB data, build instruction list (excluding directives we ignore)
+  const instrs = []; // {label, op, args}
+  let pendingDataLabel = null; // a bare "LABEL:" on its own line becomes the data label of the DB that follows
+  for (let line of lines) {
+    let m = line.match(/^\s*(\S+)\s+EQU\s+(.+)$/i);
+    if (m) { equs[m[1].toUpperCase()] = parseNum(m[2].trim()); continue; }
+
+    // label possibly followed by op on same line, label ends with ':' OR is first token before recognized directive/op
+    let l = line;
+    let label = null;
+
+    // form "LABEL: REST" 
+    let cm = l.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
+    if (cm) { label = cm[1].toUpperCase(); l = cm[2]; }
+    else {
+      // form "LABEL   OP args" (no colon) e.g. "TIMER:  MOV CX,1" already handled; also "CODE SEGMENT", "FONT: DB ..."
+      let tm = l.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s+(SEGMENT|ENDS|PROC|ENDP|DB|ORG|EQU)\b(.*)$/i);
+      if (tm && !/^(MOV|OUT|IN|CALL|RET|LOOP|INC|DEC|JMP|JNZ|JNE|JNC|JC|JZ|JE|ROL|ROR|CLC|AND|TEST|PUSH|POP|NOP|ADD|SUB|CMP|INT)$/i.test(tm[1])) {
+        label = tm[1].toUpperCase();
+        l = tm[2] + tm[3];
+      }
+    }
+
+    l = l.trim();
+    if (!l) { if (label) { instrs.push({label, op: null, args: []}); pendingDataLabel = label; } continue; }
+
+    let pm = l.match(/^(\S+)\s*(.*)$/);
+    let op = pm[1].toUpperCase();
+    let argstr = pm[2].trim();
+
+    if (op === 'SEGMENT' || op === 'ENDS' || op === 'ASSUME' || op === 'PROC' || op === 'ENDP' || op === 'END') {
+      if (label) instrs.push({label, op: null, args: []});
+      pendingDataLabel = null;
+      continue;
+    }
+    if (op === 'ORG') { instrs.push({label, op: 'ORG', args: [argstr]}); pendingDataLabel = null; continue; }
+
+    if (op === 'DB') {
+      // one or more comma separated byte literals (only single value per our files, but support list)
+      let vals = argstr.split(',').map(s => parseNum(s.trim()));
+      const dl = label || pendingDataLabel; // inline label, else a bare label from the preceding line
+      if (dl) dataLabels[dl] = mem.length;
+      for (let v of vals) mem.push(v & 0xFF);
+      pendingDataLabel = null;
+      continue;
+    }
+
+    let args = argstr.length ? splitArgs(argstr) : [];
+    instrs.push({label, op, args});
+    pendingDataLabel = null;
+  }
+
+  // Pass B: resolve labels to instruction indices (flatten, dropping label-only/null-op lines but keeping index mapping)
+  const program = [];
+  for (let ins of instrs) {
+    if (ins.label) labels[ins.label] = program.length;
+    if (ins.op) program.push(ins);
+  }
+
+  return { program, equs, labels, mem, dataLabels };
+
+  function parseNum(tok) {
+    tok = tok.trim();
+    if (/^[01]+B$/i.test(tok)) return parseInt(tok.slice(0, -1), 2);
+    if (/^[0-9A-F]+H$/i.test(tok)) return parseInt(tok.slice(0, -1), 16);
+    if (/^\d+$/.test(tok)) return parseInt(tok, 10);
+    return tok; // symbolic, resolved later
+  }
+  function splitArgs(s) {
+    // split on commas not inside brackets
+    let out = []; let depth = 0; let cur = '';
+    for (let ch of s) {
+      if (ch === '[') depth++;
+      if (ch === ']') depth--;
+      if (ch === ',' && depth === 0) { out.push(cur.trim()); cur = ''; }
+      else cur += ch;
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  }
+}
+
+class Machine {
+  constructor(assembled, io) {
+    this.prog = assembled.program;
+    this.equs = assembled.equs;
+    this.labels = assembled.labels;
+    this.mem = assembled.mem;
+    this.dataLabels = assembled.dataLabels;
+    this.io = io; // {out(port,val), in(port)}
+    this.reset();
+  }
+  reset() {
+    this.reg = {AX:0,BX:0,CX:0,DX:0,SI:0,DI:0};
+    this.CF = 0; this.ZF = 0;
+    this.pc = 0;
+    this.stack = [];
+    this.callstack = [];
+    this.halted = false;
+    this.steps = 0;
+  }
+  resolve(tok) {
+    if (typeof tok === 'number') return tok;
+    tok = tok.toString().trim();
+    let m;
+    if (/^AL$/i.test(tok)) return this.reg.AX & 0xFF;
+    if (/^AH$/i.test(tok)) return (this.reg.AX >> 8) & 0xFF;
+    if (/^BL$/i.test(tok)) return this.reg.BX & 0xFF;
+    if (/^BH$/i.test(tok)) return (this.reg.BX >> 8) & 0xFF;
+    if (/^CL$/i.test(tok)) return this.reg.CX & 0xFF;
+    if (/^CH$/i.test(tok)) return (this.reg.CX >> 8) & 0xFF;
+    if (/^DL$/i.test(tok)) return this.reg.DX & 0xFF;
+    if (/^DH$/i.test(tok)) return (this.reg.DX >> 8) & 0xFF;
+    if (/^(AX|BX|CX|DX|SI|DI)$/i.test(tok)) return this.reg[tok.toUpperCase()];
+    if (/^[01]+B$/i.test(tok)) return parseInt(tok.slice(0,-1),2);
+    if (/^[0-9A-F]+H$/i.test(tok)) return parseInt(tok.slice(0,-1),16);
+    if (/^\d+$/.test(tok)) return parseInt(tok,10);
+    if (/^OFFSET\s+(\S+)$/i.test(tok)) {
+      m = tok.match(/^OFFSET\s+(\S+)$/i);
+      let lbl = m[1].toUpperCase();
+      if (!(lbl in this.dataLabels)) throw new Error('Unknown data label ' + lbl);
+      return this.dataLabels[lbl];
+    }
+    { const addr = this.memAddr(tok); if (addr !== null) return this.mem[addr] & 0xFF; }
+    if (tok.toUpperCase() in this.equs) return this.resolve(this.equs[tok.toUpperCase()].toString());
+    throw new Error('Cannot resolve operand: ' + tok);
+  }
+  // Returns the flat-memory index for a memory operand, or null if tok isn't one.
+  // Handles: BYTE/WORD PTR [expr], BYTE/WORD PTR CS:[expr], BYTE/WORD PTR LABEL, BYTE/WORD PTR CS:LABEL
+  memAddr(tok) {
+    tok = tok.toString().trim();
+    let m = tok.match(/^(?:BYTE|WORD)\s+PTR\s+(?:[A-Z]{2}:)?\[\s*(.+?)\s*\]$/i);
+    if (m) return this.resolveAddrExpr(m[1]);
+    m = tok.match(/^(?:BYTE|WORD)\s+PTR\s+(?:[A-Z]{2}:)?([A-Za-z_][A-Za-z0-9_]*)$/i);
+    if (m && (m[1].toUpperCase() in this.dataLabels)) return this.dataLabels[m[1].toUpperCase()];
+    return null;
+  }
+  // Resolves the address expression inside [ ] as a sum of data labels, registers, and constants.
+  resolveAddrExpr(e) {
+    let total = 0;
+    for (let part of e.split('+')) {
+      part = part.trim();
+      const up = part.toUpperCase();
+      if (up in this.dataLabels) total += this.dataLabels[up];
+      else total += this.resolve(part);
+    }
+    return total;
+  }
+  setByteReg(name, val) {
+    val &= 0xFF;
+    const n = name.toUpperCase();
+    if (n === 'AL') this.reg.AX = (this.reg.AX & 0xFF00) | val;
+    else if (n === 'AH') this.reg.AX = (this.reg.AX & 0x00FF) | (val << 8);
+    else if (n === 'BL') this.reg.BX = (this.reg.BX & 0xFF00) | val;
+    else if (n === 'BH') this.reg.BX = (this.reg.BX & 0x00FF) | (val << 8);
+    else if (n === 'CL') this.reg.CX = (this.reg.CX & 0xFF00) | val;
+    else if (n === 'CH') this.reg.CX = (this.reg.CX & 0x00FF) | (val << 8);
+    else if (n === 'DL') this.reg.DX = (this.reg.DX & 0xFF00) | val;
+    else if (n === 'DH') this.reg.DX = (this.reg.DX & 0x00FF) | (val << 8);
+  }
+  isByteReg(n) { return /^(AL|AH|BL|BH|CL|CH|DL|DH)$/i.test(n); }
+  isWordReg(n) { return /^(AX|BX|CX|DX|SI|DI)$/i.test(n); }
+
+  // execute one instruction; returns false when halted
+  step() {
+    if (this.halted) return false;
+    if (this.pc >= this.prog.length) { this.halted = true; return false; }
+    const ins = this.prog[this.pc];
+    const a = ins.args;
+    let next = this.pc + 1;
+    switch (ins.op) {
+      case 'ORG': break;
+      case 'MOV': {
+        const dst = a[0], src = this.resolve(a[1]);
+        let memDst;
+        if (this.isByteReg(dst)) this.setByteReg(dst, src);
+        else if (this.isWordReg(dst)) this.reg[dst.toUpperCase()] = src & 0xFFFF;
+        else if ((memDst = this.memAddr(dst)) !== null) this.mem[memDst] = src & 0xFF;
+        else if (dst.toUpperCase() === 'DS' || dst.toUpperCase()==='ES' || dst.toUpperCase()==='SS') { /* segment, ignore */ }
+        else throw new Error('Bad MOV dst: ' + dst);
+        break;
+      }
+      case 'OUT': {
+        const port = this.resolve(a[0]);
+        const val = this.resolve(a[1]);
+        this.io.out(port, val & 0xFF);
+        break;
+      }
+      case 'IN': {
+        const dst = a[0], port = this.resolve(a[1]);
+        const val = this.io.in(port) & 0xFF;
+        this.setByteReg(dst, val);
+        break;
+      }
+      case 'ADD': {
+        const dst = a[0]; const v = this.resolve(dst) + this.resolve(a[1]);
+        this.CF = v > 0xFF && this.isByteReg(dst) ? 1 : (v > 0xFFFF ? 1 : 0);
+        const res = this.isByteReg(dst) ? v & 0xFF : v & 0xFFFF;
+        if (this.isByteReg(dst)) this.setByteReg(dst, res); else this.reg[dst.toUpperCase()] = res;
+        this.ZF = res === 0 ? 1 : 0;
+        break;
+      }
+      case 'SUB': case 'CMP': {
+        const left = this.resolve(a[0]); const right = this.resolve(a[1]);
+        const res = left - right;
+        this.ZF = (res & 0xFFFF) === 0 || res === 0 ? (left === right ? 1:0) : 0;
+        this.CF = left < right ? 1 : 0;
+        if (ins.op === 'SUB') {
+          const dst = a[0];
+          if (this.isByteReg(dst)) this.setByteReg(dst, res & 0xFF); else this.reg[dst.toUpperCase()] = res & 0xFFFF;
+        }
+        break;
+      }
+      case 'INC': {
+        const dst = a[0]; const v = (this.resolve(dst) + 1);
+        const res = this.isByteReg(dst) ? v & 0xFF : v & 0xFFFF;
+        if (this.isByteReg(dst)) this.setByteReg(dst, res); else this.reg[dst.toUpperCase()] = res;
+        this.ZF = res === 0 ? 1 : 0;
+        break;
+      }
+      case 'DEC': {
+        const dst = a[0]; const v = (this.resolve(dst) - 1);
+        const res = this.isByteReg(dst) ? (v & 0xFF) : (v & 0xFFFF);
+        if (this.isByteReg(dst)) this.setByteReg(dst, res); else this.reg[dst.toUpperCase()] = res;
+        this.ZF = res === 0 ? 1 : 0;
+        break;
+      }
+      case 'AND': {
+        const dst = a[0]; const v = this.resolve(dst) & this.resolve(a[1]);
+        if (this.isByteReg(dst)) this.setByteReg(dst, v); else this.reg[dst.toUpperCase()] = v;
+        this.ZF = v === 0 ? 1 : 0; this.CF = 0;
+        break;
+      }
+      case 'TEST': {
+        const v = this.resolve(a[0]) & this.resolve(a[1]);
+        this.ZF = v === 0 ? 1 : 0; this.CF = 0;
+        break;
+      }
+      case 'CLC': this.CF = 0; break;
+      case 'ROL': {
+        const dst = a[0]; let v = this.resolve(dst) & 0xFF;
+        const carry = (v & 0x80) >> 7;
+        v = ((v << 1) | carry) & 0xFF;
+        this.CF = carry;
+        if (this.isByteReg(dst)) this.setByteReg(dst, v);
+        break;
+      }
+      case 'ROR': {
+        const dst = a[0]; let v = this.resolve(dst) & 0xFF;
+        const carry = v & 0x01;
+        v = ((v >> 1) | (carry << 7)) & 0xFF;
+        this.CF = carry;
+        if (this.isByteReg(dst)) this.setByteReg(dst, v);
+        break;
+      }
+      case 'PUSH': this.stack.push(this.resolve(a[0])); break;
+      case 'POP': {
+        const v = this.stack.pop();
+        const dst = a[0];
+        if (this.isWordReg(dst)) this.reg[dst.toUpperCase()] = v;
+        break;
+      }
+      case 'CALL': {
+        const lbl = a[0].toUpperCase();
+        this.callstack.push(next);
+        next = this.labels[lbl];
+        if (next === undefined) throw new Error('Unknown label ' + lbl);
+        break;
+      }
+      case 'RET': {
+        next = this.callstack.pop();
+        if (next === undefined) { this.halted = true; return false; }
+        break;
+      }
+      case 'JMP': next = this.labels[a[0].toUpperCase()]; break;
+      case 'JNZ': case 'JNE': if (this.ZF === 0) next = this.labels[a[0].toUpperCase()]; break;
+      case 'JZ': case 'JE': if (this.ZF === 1) next = this.labels[a[0].toUpperCase()]; break;
+      case 'JNC': if (this.CF === 0) next = this.labels[a[0].toUpperCase()]; break;
+      case 'JC': if (this.CF === 1) next = this.labels[a[0].toUpperCase()]; break;
+      case 'LOOP': {
+        this.reg.CX = (this.reg.CX - 1) & 0xFFFF;
+        if (this.reg.CX !== 0) next = this.labels[a[0].toUpperCase()];
+        break;
+      }
+      case 'NOP': break;
+      case 'INT': this.halted = true; return false;
+      default: throw new Error('Unimplemented instruction: ' + ins.op);
+    }
+    this.pc = next;
+    this.steps++;
+    return !this.halted;
+  }
+  run(maxSteps) {
+    let n = 0;
+    while (!this.halted && n < maxSteps) { this.step(); n++; }
+    return n;
+  }
+}
+
+
+
+// ---- Examples ----
+const EXAMPLES = {
+led: `CODE SEGMENT
+ASSUME CS:CODE,DS:CODE,ES:CODE,SS:CODE
+PPIC_C EQU 1FH
+PPIC EQU 1DH
+PPIB EQU 1BH
+PPIA EQU 19H
+ORG 1000H
+MOV AL,10000000B
+OUT PPIC_C,AL
+MOV AL,11111111B
+OUT PPIA,AL
+MOV AL,00000000B
+OUT PPIC,AL
+MOV BX,3
+TASK1:
+MOV AL,11100001B
+OUT PPIB,AL
+CALL TIMER
+MOV AL,11110000B
+OUT PPIB,AL
+MOV AL,11110100B
+OUT PPIB,AL
+CALL TIMER
+MOV AL,11110000B
+OUT PPIB,AL
+CALL TIMER
+MOV AL,11110010B
+OUT PPIB,AL
+CALL TIMER
+MOV AL,11110000B
+OUT PPIB,AL
+CALL TIMER
+DEC BX
+CMP BX,0
+JNE TASK1
+INT 3
+TIMER: MOV CX,1
+TIMER2: PUSH CX
+MOV CX,0
+TIMER1: NOP
+NOP
+NOP
+LOOP TIMER1
+POP CX
+LOOP TIMER2
+RET
+CODE ENDS
+END`,
+sevenseg: `CODE SEGMENT
+ASSUME CS:CODE,DS:CODE,ES:CODE,SS:CODE
+PPIC_C EQU 1FH
+PPIC EQU 1DH
+PPIB EQU 1BH
+PPIA EQU 19H
+ORG 1000H
+MOV AL,10000000B
+OUT PPIC_C,AL
+MOV AL,11110000B
+OUT PPIB,AL
+MOV AL,00000000B
+OUT PPIC,AL
+MOV BX,4
+L2: MOV SI,OFFSET DATA
+ADD SI,9
+DEC BX
+CMP BX,0
+JZ L3
+L1: MOV AL,BYTE PTR CS:[SI]
+OUT PPIA,AL
+CALL TIMER
+CMP AL,11000000B
+JE L2
+DEC SI
+JMP L1
+L3:
+INT 3
+TIMER: MOV CX,0
+TIMER1: NOP
+NOP
+NOP
+NOP
+LOOP TIMER1
+RET
+DATA: DB 11000000B
+DB 11111001B
+DB 10100100B
+DB 10110000B
+DB 10011001B
+DB 10010010B
+DB 10000010B
+DB 11111000B
+DB 10000000B
+DB 10010000B
+CODE ENDS
+END`,
+matrix2: `CODE\tSEGMENT
+\tASSUME\tCS:CODE,DS:CODE,ES:CODE,SS:CODE
+PPIC_C\tEQU\t1EH
+PPIC\tEQU\t1CH
+PPIB\tEQU\t1AH
+PPIA\tEQU\t18H
+\tORG\t1000H
+\tMOV\tAL,10000000B
+\tOUT\tPPIC_C,AL
+\tMOV\tAL,11111111B
+\tOUT\tPPIA,AL
+L1:\tMOV\tSI,OFFSET FONT
+\tMOV\tAH,00000001B
+L2:\tMOV\tAL,BYTE PTR CS:[SI]
+\tOUT\tPPIB,AL
+\tMOV\tAL,AH
+\tOUT\tPPIC,AL
+\tCALL\tTIMER
+\tINC\tSI
+\tCLC
+\tROL\tAH,1
+\tJNC\tL2
+\tJMP\tL1
+\tINT\t3
+TIMER:\tMOV\tCX,300
+TIMER1:\tNOP
+\tNOP
+\tNOP
+\tNOP
+\tLOOP\tTIMER1
+\tRET
+FONT:   DB      11111111B
+        DB      11000000B
+        DB      10110111B
+        DB      01110111B
+        DB      01110111B
+        DB      10110111B
+        DB      11000000B
+        DB      11111111B
+CODE\tENDS
+\tEND`,
+matrixcolor: `CODE SEGMENT
+ASSUME CS:CODE,DS:CODE,ES:CODE,SS:CODE
+; Bi-colour 8x8 dot matrix (CS1). PPIB=1AH drives the RED plane, PPIA=18H
+; drives the GREEN plane, PPIC=1CH is the scan line. Both data planes are
+; active-low (bit 0 = dot lit). Lighting a dot on BOTH planes gives orange.
+PPIC_C EQU 1EH
+PPIC EQU 1CH
+PPIB EQU 1AH
+PPIA EQU 18H
+ORG 1000H
+MOV AL,10000000B
+OUT PPIC_C,AL
+MOV AL,11111111B
+OUT PPIC,AL
+CYCLE:
+MOV AL,00000000B
+OUT PPIB,AL
+MOV AL,11111111B
+OUT PPIA,AL
+CALL TIMER
+MOV AL,11111111B
+OUT PPIB,AL
+MOV AL,00000000B
+OUT PPIA,AL
+CALL TIMER
+MOV AL,00000000B
+OUT PPIB,AL
+MOV AL,00000000B
+OUT PPIA,AL
+CALL TIMER
+JMP CYCLE
+INT 3
+TIMER: MOV CX,20
+TIMER2: PUSH CX
+MOV CX,0FFFFH
+TIMER1: NOP
+LOOP TIMER1
+POP CX
+LOOP TIMER2
+RET
+CODE ENDS
+END`,
+stepper: `CODE SEGMENT
+ASSUME CS:CODE,DS:CODE,SS:CODE,ES:CODE
+PPIC_C EQU 1FH
+PPIC EQU 1DH
+PPIB EQU 1BH
+PPIA EQU 19H
+ORG 1000H
+MOV AL,80H
+OUT PPIC_C,AL
+MOV AL,11111111B
+OUT PPIA,AL
+MOV AL,00000000B
+OUT PPIC,AL
+MOV AL,11101110B
+L1: OUT PPIB,AL
+CALL TIMER
+ROR AL,1
+JMP L1
+INT 3
+TIMER: MOV CX,1
+TIMER2: PUSH CX
+MOV CX,0
+TIMER1: NOP
+NOP
+NOP
+LOOP TIMER1
+POP CX
+LOOP TIMER2
+RET
+CODE ENDS
+END`,
+keypad: `CODE SEGMENT
+ASSUME CS:CODE,DS:CODE,ES:CODE,SS:CODE
+KEY EQU 01H
+PPIC_C EQU 1FH
+PPIB EQU 1BH
+ORG 1000H
+MOV AL,10000000B
+OUT PPIC_C,AL
+SCAN: IN AL,KEY
+TEST AL,10000000B
+JNZ SCAN
+AND AL,00011111B
+OUT PPIB,AL
+CALL SCAN2
+JMP SCAN
+SCAN2: MOV CX,1
+RET
+CODE ENDS
+END`
+};
+
+// ---- Peripheral state ----
+let ledState = 0;       // last byte written to PPIB (CS2) - shared by LED bank + stepper display
+let segState = 0xFF;    // last byte to PPIA (CS2), active-low segments
+// CS1 bi-colour dot matrix. Board orientation (per MicroLab3 diagram + tasks):
+//   port C (PPIC) runs along the BOTTOM  -> it is the COLUMN scan (horizontal axis)
+//   ports A/B (PPIA/PPIB) run down the SIDE -> they are the ROW data (vertical axis)
+//   matRed   <- PPIB (1AH)  : RED plane, row data   (single-colour MATRIX_2/3/4 drive this)
+//   matGreen <- PPIA (18H)  : GREEN plane, row data (held FF/off by red-only programs; both on = orange)
+//   matScan  <- PPIC (1CH)  : one-hot column scan; data planes active-low (0 = dot lit)
+let matRed = 0xFF, matGreen = 0xFF, matScan = 0;
+let stepperAngle = 0;
+let lastStepPattern = null;
+const STEP_SEQ = ["1110","1101","1011","0111"]; // one full-step cycle reference (order doesn't matter for angle demo)
+
+// build LEDs (4, fixed physical colours L->R: Red, Green, Yellow, Red — PPIB bits 0..3)
+const LED_COLORS = ['c-red', 'c-green', 'c-yellow', 'c-red'];
+const ledsEl = document.getElementById('leds');
+for (let i = 0; i < 4; i++) {
+  const d = document.createElement('div');
+  d.className = 'led ' + LED_COLORS[i];
+  d.id = 'led' + i;
+  ledsEl.appendChild(d);
+}
+
+// build dot matrix 8x8
+const matrixEl = document.getElementById('matrix');
+const dotEls = [];
+for (let r = 0; r < 8; r++) {
+  dotEls.push([]);
+  for (let c = 0; c < 8; c++) {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    matrixEl.appendChild(d);
+    dotEls[r].push(d);
+  }
+}
+
+// keypad layout matching the physical hex keypad (GO STP C D E F / + REG 8 9 A B / - DA 4 5 6 7 / : AD 0 1 2 3 / MON)
+const KEY_LAYOUT = [
+  ['GO',0x10],['STP',0x11],['C',0x0C],['D',0x0D],['E',0x0E],['F',0x0F],
+  ['+',0x12],['REG',0x13],['8',0x08],['9',0x09],['A',0x0A],['B',0x0B],
+  ['-',0x14],['DA',0x15],['4',0x04],['5',0x05],['6',0x06],['7',0x07],
+  [':',0x16],['AD',0x17],['0',0x00],['1',0x01],['2',0x02],['3',0x03],
+  ['MON',0x18]
+];
+const keypadEl = document.getElementById('keypad');
+let pendingKey = null;
+KEY_LAYOUT.forEach(([label, code]) => {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = () => { pendingKey = code; };
+  keypadEl.appendChild(b);
+});
+
+function renderLEDs(byte) {
+  // Active-HIGH: Fig 1-1 shows LED11-14 cathodes tied to GND (bit=1 -> lit). Confirmed by the
+  // Lab1 source, where 11110000B is the all-off state (low nibble 0 = all four off).
+  // bit i drives physical position i+1 (0=Red, 1=Green, 2=Yellow, 3=Red).
+  for (let i = 0; i < 4; i++) {
+    const on = ((byte >> i) & 1) === 1;
+    document.getElementById('led' + i).classList.toggle('on', on);
+  }
+}
+function renderSevenSeg(byte) {
+  // Standard common-anode hex font, active-low: segment a = bit0, b = bit1, ... g = bit6, dp = bit7.
+  // e.g. 0xC0 = 11000000 -> a..f on, g & dp off = "0"; 0xF9 = 11111001 -> b,c on = "1".
+  const bits = ['a','b','c','d','e','f','g','dp'];
+  for (let i = 0; i < 8; i++) {
+    const on = ((byte >> i) & 1) === 0;
+    const el = document.getElementById('seg-' + bits[i]);
+    if (el) el.classList.toggle('on', on);
+  }
+}
+function renderMatrixDot() {
+  // Orientation: PPIC (matScan) is the COLUMN scan along the bottom; PPIB/PPIA are ROW data
+  // down the side. A dot lights when its column is scanned AND its row bit is 0 (active-low).
+  // Axis mapping is fixed to make the documented MicroLab3 tasks read correctly:
+  //   scan bit s -> grid column s      (PPIC 00000001B = leftmost column, walks right)
+  //   data bit d -> grid row (7 - d)   (PPIB/PPIA bit7 = top row, walks down)
+  // Both planes on the same dot = orange. Red-only programs keep matGreen=FF (no green/orange).
+  for (let s = 0; s < 8; s++) {
+    const colActive = (matScan >> s) & 1;
+    const gridCol = s;
+    for (let d = 0; d < 8; d++) {
+      const gridRow = 7 - d;
+      const redOn   = !!(colActive && ((matRed   >> d) & 1) === 0);
+      const greenOn = !!(colActive && ((matGreen >> d) & 1) === 0);
+      const el = dotEls[gridRow][gridCol];
+      el.classList.toggle('on',     redOn && !greenOn);   // .on = red (preserves baseline colour)
+      el.classList.toggle('green',  greenOn && !redOn);
+      el.classList.toggle('orange', redOn && greenOn);
+    }
+  }
+}
+function renderStepper(byte) {
+  const pattern = (byte & 0x0F).toString(2).padStart(4, '0');
+  if (lastStepPattern !== null && pattern !== lastStepPattern) {
+    stepperAngle = (stepperAngle + 45) % 360;
+  }
+  lastStepPattern = pattern;
+  document.getElementById('rotor').style.transform = `rotate(${stepperAngle}deg)`;
+  document.getElementById('angleLabel').textContent = stepperAngle + '°';
+}
+function renderRegs(m) {
+  document.getElementById('rAX').textContent = m.reg.AX.toString(16).padStart(4,'0').toUpperCase();
+  document.getElementById('rBX').textContent = m.reg.BX.toString(16).padStart(4,'0').toUpperCase();
+  document.getElementById('rCX').textContent = m.reg.CX.toString(16).padStart(4,'0').toUpperCase();
+  document.getElementById('rDX').textContent = m.reg.DX.toString(16).padStart(4,'0').toUpperCase();
+  document.getElementById('rSI').textContent = m.reg.SI.toString(16).padStart(4,'0').toUpperCase();
+  document.getElementById('rDI').textContent = m.reg.DI.toString(16).padStart(4,'0').toUpperCase();
+  document.getElementById('fZF').classList.toggle('set', m.ZF===1);
+  document.getElementById('fCF').classList.toggle('set', m.CF===1);
+  document.getElementById('stepCount').textContent = m.steps + ' steps';
+}
+
+// ---- IO dispatch per confirmed port map ----
+function makeIO() {
+  return {
+    out(port, val) {
+      switch (port) {
+        case 0x19: segState = val; renderSevenSeg(val); break;        // CS2 PPIA - 7seg
+        case 0x1B: ledState = val; renderLEDs(val); renderStepper(val); break; // CS2 PPIB - LED bank + stepper (shared, jumper-selected on real board)
+        case 0x18: matGreen = val; renderMatrixDot(); break;           // CS1 PPIA - matrix GREEN data plane (active-low)
+        case 0x1A: matRed = val; renderMatrixDot(); break;             // CS1 PPIB - matrix RED data plane (active-low)
+        case 0x1C: matScan = val; renderMatrixDot(); break;            // CS1 PPIC - matrix one-hot column scan (bottom axis)
+        case 0x1D: case 0x1E: case 0x1F: case 0x1C && false: break;    // control/config regs, no visible effect
+        default: break;
+      }
+    },
+    in(port) {
+      if (port === 0x01) {
+        // Kit convention (matches the lab SCAN routines): bit7 = strobe, SET when NO key is
+        // available, CLEARED when a key is ready. The key code (0x00-0x18) sits in the low bits,
+        // so hex keys 0-F are 0x00-0x0F (bit4 clear) and function keys are 0x10-0x18 (bit4 set).
+        if (pendingKey !== null) return pendingKey & 0x7F; // valid key: bit7 clear
+        return 0x80;                                       // idle: bit7 set, no key
+      }
+      return 0;
+    }
+  };
+}
+
+// ---- Wiring / control ----
+let asmd = null, machine = null, running = false, rafId = null;
+
+const srcEl = document.getElementById('src');
+const statusEl = document.getElementById('status');
+document.getElementById('exampleSelect').addEventListener('change', e => {
+  if (EXAMPLES[e.target.value]) srcEl.value = EXAMPLES[e.target.value];
+});
+srcEl.value = EXAMPLES.led;
+
+function setStatus(msg, cls) {
+  statusEl.textContent = msg;
+  statusEl.className = cls || '';
+}
+
+document.getElementById('btnAssemble').onclick = () => {
+  try {
+    asmd = assemble(srcEl.value);
+    machine = new Machine(asmd, makeIO());
+    setStatus('Assembled OK. ' + asmd.program.length + ' instructions, ' + Object.keys(asmd.labels).length + ' labels.', 'ok');
+    ['btnRun','btnStep','btnStop','btnReset'].forEach(id => document.getElementById(id).disabled = false);
+    document.getElementById('btnStop').disabled = true;
+    renderRegs(machine);
+  } catch (err) {
+    setStatus('Assemble error: ' + err.message, 'err');
+    machine = null;
+  }
+};
+
+document.getElementById('btnReset').onclick = () => {
+  if (!asmd) return;
+  stop();
+  machine = new Machine(asmd, makeIO());
+  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; stepperAngle = 0; lastStepPattern = null;
+  renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot();
+  document.getElementById('rotor').style.transform = 'rotate(0deg)';
+  document.getElementById('angleLabel').textContent = '0°';
+  renderRegs(machine);
+  setStatus('Reset.', '');
+};
+
+document.getElementById('btnStep').onclick = () => {
+  if (!machine) return;
+  try {
+    machine.step();
+    renderRegs(machine);
+    if (machine.halted) setStatus('Halted (INT 3) after ' + machine.steps + ' steps.', 'ok');
+  } catch (err) { setStatus('Runtime error: ' + err.message, 'err'); stop(); }
+};
+
+document.getElementById('btnRun').onclick = () => { run(); };
+document.getElementById('btnStop').onclick = () => { stop(); };
+
+function run() {
+  if (!machine || running) return;
+  running = true;
+  document.getElementById('btnRun').disabled = true;
+  document.getElementById('btnStop').disabled = false;
+  loop();
+}
+function stop() {
+  running = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  document.getElementById('btnRun').disabled = machine ? false : true;
+  document.getElementById('btnStop').disabled = true;
+}
+function loop() {
+  if (!running || !machine) return;
+  try {
+    const speed = parseInt(document.getElementById('speed').value, 10);
+    // fast-forward CPU cycles per visual frame; higher speed = more engine steps per animation frame,
+    // since real NOP/LOOP timing loops don't map to meaningful wall-clock time in a browser.
+    const stepsPerFrame = speed * 400;
+    let n = 0;
+    while (n < stepsPerFrame && !machine.halted) { machine.step(); n++; }
+    renderRegs(machine);
+    if (machine.halted) {
+      setStatus('Halted (INT 3) after ' + machine.steps + ' steps.', 'ok');
+      stop();
+      return;
+    }
+  } catch (err) {
+    setStatus('Runtime error: ' + err.message, 'err');
+    stop();
+    return;
+  }
+  rafId = requestAnimationFrame(loop);
+}
+
+renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot();
+
+</script>
+</body>
+</html>
