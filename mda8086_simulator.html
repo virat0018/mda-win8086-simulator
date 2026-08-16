@@ -757,7 +757,8 @@ let matRed = 0xFF, matGreen = 0xFF, matScan = 0;
 let stepperStep = 0;      // net step count; each step = 1.8° (200 steps per revolution)
 const STEP_DEG = 1.8;     // real stepper resolution: 1.8° per step
 let lastCoilAngle = null; // angular position (radians) of the last energized coil set, for direction detection
-let stepperFirstPending = false; // the very first coil pulse is counted as a step once its direction is known
+let stepperDir = 0;       // current rotation direction: +1 = CW (ROR), -1 = CCW (ROL), 0 = not yet known
+let stepperPending = 0;   // pulses issued before the direction was known; counted once it is
 
 // build LEDs (4, fixed physical colours L->R: Red, Green, Yellow, Red — PPIB bits 0..3)
 const LED_COLORS = ['c-red', 'c-green', 'c-yellow', 'c-red'];
@@ -849,20 +850,22 @@ function renderStepper(byte) {
     if (((nib >> i) & 1) === 0) { const a = i * Math.PI / 2; sx += Math.cos(a); sy += Math.sin(a); energized++; }
   }
   const coilAngle = (energized === 0 || energized === 4) ? null : Math.atan2(sy, sx);
-  // The first coil pulse is one step too; count it once the 2nd pulse reveals the direction,
-  // so N pulses == N steps (e.g. 25 pulses -> 25 * 1.8 = 45 deg).
-  if (lastCoilAngle === null && coilAngle !== null) stepperFirstPending = true;
-  if (lastCoilAngle !== null && coilAngle !== null) {
-    let d = coilAngle - lastCoilAngle;
-    while (d > Math.PI) d -= 2 * Math.PI;      // shortest signed arc
-    while (d <= -Math.PI) d += 2 * Math.PI;
-    if (d > 1e-6 || d < -1e-6) {
-      const inc = stepperFirstPending ? 2 : 1; // +1 for this pulse, +1 for the first (same direction)
-      stepperStep += (d > 0) ? -inc : inc;     // forward (ROL) -> CCW ; reverse (ROR) -> CW
-      stepperFirstPending = false;
+  // Every output pulse is one 1.8° step in the current direction, so N pulses == N steps
+  // (25 pulses -> 45°, and each repeat of the loop adds another 45°). A change in the coil
+  // sequence updates the direction; pulses issued before the direction is known are counted
+  // once it is (the first pulse of the program).
+  if (coilAngle !== null) {
+    if (lastCoilAngle !== null) {
+      let d = coilAngle - lastCoilAngle;
+      while (d > Math.PI) d -= 2 * Math.PI;    // shortest signed arc
+      while (d <= -Math.PI) d += 2 * Math.PI;
+      if (d > 1e-6) stepperDir = -1;           // forward (ROL) -> counter-clockwise
+      else if (d < -1e-6) stepperDir = 1;      // reverse (ROR) -> clockwise
     }
+    if (stepperDir !== 0) { stepperStep += stepperDir * (1 + stepperPending); stepperPending = 0; }
+    else stepperPending += 1;                  // no direction yet; count this pulse once one is known
+    lastCoilAngle = coilAngle;
   }
-  if (coilAngle !== null) lastCoilAngle = coilAngle;
   const deg = (((stepperStep * STEP_DEG) % 360) + 360) % 360; // exact multiple of 1.8°, no float drift
   document.getElementById('rotor').style.transform = `rotate(${deg}deg)`;
   document.getElementById('angleLabel').textContent = deg.toFixed(1) + '°';
@@ -939,7 +942,7 @@ document.getElementById('btnReset').onclick = () => {
   if (!asmd) return;
   stop();
   machine = new Machine(asmd, makeIO());
-  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; stepperStep = 0; lastCoilAngle = null; stepperFirstPending = false;
+  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; stepperStep = 0; lastCoilAngle = null; stepperDir = 0; stepperPending = 0;
   renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot();
   document.getElementById('rotor').style.transform = 'rotate(0deg)';
   document.getElementById('angleLabel').textContent = '0.0°';
