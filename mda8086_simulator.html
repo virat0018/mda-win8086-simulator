@@ -754,11 +754,17 @@ let segState = 0xFF;    // last byte to PPIA (CS2), active-low segments
 //   matGreen <- PPIA (18H)  : GREEN plane, row data (held FF/off by red-only programs; both on = orange)
 //   matScan  <- PPIC (1CH)  : one-hot column scan; data planes active-low (0 = dot lit)
 let matRed = 0xFF, matGreen = 0xFF, matScan = 0;
+// Scan-method persistence: each column keeps the row pattern last latched onto it (captured when
+// PPIC selects that column). This makes a multiplexed "scan" program show the whole shape instead
+// of one flickering column. Flash-method programs (PPIC drives several columns at once) are drawn
+// live from matRed/matGreen instead. Off = 0xFF (active-low).
+let colRed = new Array(8).fill(0xFF), colGreen = new Array(8).fill(0xFF);
 let stepperStep = 0;      // net step count; each step = 1.8° (200 steps per revolution)
 const STEP_DEG = 1.8;     // real stepper resolution: 1.8° per step
 let lastCoilAngle = null; // angular position (radians) of the last energized coil set, for direction detection
 let stepperDir = 0;       // current rotation direction: +1 = CW (ROR), -1 = CCW (ROL), 0 = not yet known
 let stepperPending = 0;   // pulses issued before the direction was known; counted once it is
+let stepperRevSeen = 0;   // consecutive coil moves opposing the current direction (hysteresis vs pattern resets)
 
 // build LEDs (4, fixed physical colours L->R: Red, Green, Yellow, Red — PPIB bits 0..3)
 const LED_COLORS = ['c-red', 'c-green', 'c-yellow', 'c-red'];
@@ -819,20 +825,35 @@ function renderSevenSeg(byte) {
     if (el) el.classList.toggle('on', on);
   }
 }
+// Called when PPIC latches a column selection: store the current row data onto every selected
+// column so a one-column-at-a-time scan builds up the whole image (persistence of vision).
+function latchMatrixColumns() {
+  for (let c = 0; c < 8; c++) {
+    if ((matScan >> c) & 1) { colRed[c] = matRed; colGreen[c] = matGreen; }
+  }
+}
 function renderMatrixDot() {
-  // Orientation: PPIC (matScan) is the COLUMN scan along the bottom; PPIB/PPIA are ROW data
-  // down the side. A dot lights when its column is scanned AND its row bit is 0 (active-low).
-  // Axis mapping is fixed to make the documented MicroLab3 tasks read correctly:
-  //   scan bit s -> grid column s      (PPIC 00000001B = leftmost column, walks right)
-  //   data bit d -> grid row (7 - d)   (PPIB/PPIA bit7 = top row, walks down)
-  // Both planes on the same dot = orange. Red-only programs keep matGreen=FF (no green/orange).
-  for (let s = 0; s < 8; s++) {
-    const colActive = (matScan >> s) & 1;
-    const gridCol = s;
+  // Orientation: PPIC (matScan) = COLUMN scan along the bottom (bit0 = leftmost); PPIB/PPIA = ROW
+  // data down the side (data bit d -> grid row 7-d, bit7 = top). Both planes on a dot = orange.
+  //   * SCAN method  (PPIC selects one column at a time): draw each column from its latched buffer,
+  //     so the full shape stays lit instead of flickering one column.
+  //   * FLASH method (PPIC drives >1 column at once): draw live from matRed/matGreen for the
+  //     currently-selected columns, so moving full-frame patterns don't smear.
+  const flash = (matScan & (matScan - 1)) !== 0;   // more than one column selected
+  for (let gridCol = 0; gridCol < 8; gridCol++) {
+    let rp, gp;
+    if (flash) {
+      const on = (matScan >> gridCol) & 1;
+      rp = on ? matRed : 0xFF;
+      gp = on ? matGreen : 0xFF;
+    } else {
+      rp = colRed[gridCol];
+      gp = colGreen[gridCol];
+    }
     for (let d = 0; d < 8; d++) {
       const gridRow = 7 - d;
-      const redOn   = !!(colActive && ((matRed   >> d) & 1) === 0);
-      const greenOn = !!(colActive && ((matGreen >> d) & 1) === 0);
+      const redOn   = ((rp >> d) & 1) === 0;
+      const greenOn = ((gp >> d) & 1) === 0;
       const el = dotEls[gridRow][gridCol];
       el.classList.toggle('on',     redOn && !greenOn);   // .on = red (preserves baseline colour)
       el.classList.toggle('green',  greenOn && !redOn);
@@ -859,8 +880,13 @@ function renderStepper(byte) {
       let d = coilAngle - lastCoilAngle;
       while (d > Math.PI) d -= 2 * Math.PI;    // shortest signed arc
       while (d <= -Math.PI) d += 2 * Math.PI;
-      if (d > 1e-6) stepperDir = -1;           // forward (ROL) -> counter-clockwise
-      else if (d < -1e-6) stepperDir = 1;      // reverse (ROR) -> clockwise
+      const td = d > 1e-6 ? -1 : (d < -1e-6 ? 1 : 0); // this move: ROL -> CCW(-1), ROR -> CW(+1)
+      if (td !== 0) {
+        if (stepperDir === 0) stepperDir = td;              // first known direction
+        else if (td === stepperDir) stepperRevSeen = 0;     // still turning the same way
+        else if (++stepperRevSeen >= 2) { stepperDir = td; stepperRevSeen = 0; } // sustained reversal
+        // A single opposing move (e.g. re-loading the coil pattern at a loop boundary) does NOT reverse.
+      }
     }
     if (stepperDir !== 0) { stepperStep += stepperDir * (1 + stepperPending); stepperPending = 0; }
     else stepperPending += 1;                  // no direction yet; count this pulse once one is known
@@ -891,7 +917,7 @@ function makeIO() {
         case 0x1B: ledState = val; renderLEDs(val); renderStepper(val); break; // CS2 PPIB - LED bank + stepper (shared, jumper-selected on real board)
         case 0x18: matGreen = val; renderMatrixDot(); break;           // CS1 PPIA - matrix GREEN data plane (active-low)
         case 0x1A: matRed = val; renderMatrixDot(); break;             // CS1 PPIB - matrix RED data plane (active-low)
-        case 0x1C: matScan = val; renderMatrixDot(); break;            // CS1 PPIC - matrix one-hot column scan (bottom axis)
+        case 0x1C: matScan = val; latchMatrixColumns(); renderMatrixDot(); break; // CS1 PPIC - column scan (latches the column into the persistence buffer)
         case 0x01: pendingKey = null; break;                           // OUT KEY = release/clear the key strobe (momentary key)
         case 0x1D: case 0x1E: case 0x1F: case 0x1C && false: break;    // control/config regs, no visible effect
         default: break;
@@ -945,7 +971,7 @@ document.getElementById('btnReset').onclick = () => {
   stop();
   machine = new Machine(asmd, makeIO());
   pendingKey = null; // release any held key so each run waits for a fresh press
-  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; stepperStep = 0; lastCoilAngle = null; stepperDir = 0; stepperPending = 0;
+  ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; colRed.fill(0xFF); colGreen.fill(0xFF); stepperStep = 0; lastCoilAngle = null; stepperDir = 0; stepperPending = 0; stepperRevSeen = 0;
   renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot();
   document.getElementById('rotor').style.transform = 'rotate(0deg)';
   document.getElementById('angleLabel').textContent = '0.0°';
