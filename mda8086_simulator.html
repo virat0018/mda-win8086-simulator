@@ -179,18 +179,19 @@ function assemble(source) {
   const mem = []; // flat byte memory for DB data
   const dataLabels = {}; // label -> mem index
 
-  // Strip comments, split label/op/operands, but keep DB handling special (multi-line data)
-  // First pass: tokenize each line into {label, op, args, raw}
-  for (let raw of rawLines) {
-    let line = raw.split(';')[0];
+  // Strip comments; keep each surviving line's original 1-based source line number for error reports.
+  for (let i = 0; i < rawLines.length; i++) {
+    let line = rawLines[i].split(';')[0];
     if (!line.trim()) continue;
-    lines.push(line);
+    lines.push({ text: line, lineNo: i + 1 });
   }
 
   // Pass A: extract EQUs and DB data, build instruction list (excluding directives we ignore)
-  const instrs = []; // {label, op, args}
+  const instrs = []; // {label, op, args, lineNo}
   let pendingDataLabel = null; // a bare "LABEL:" on its own line becomes the data label of the DB that follows
-  for (let line of lines) {
+  for (let lineObj of lines) {
+   const line = lineObj.text, lineNo = lineObj.lineNo;
+   try {
     let m = line.match(/^\s*(\S+)\s+EQU\s+(.+)$/i);
     if (m) { equs[m[1].toUpperCase()] = parseNum(m[2].trim()); continue; }
 
@@ -198,7 +199,7 @@ function assemble(source) {
     let l = line;
     let label = null;
 
-    // form "LABEL: REST" 
+    // form "LABEL: REST"
     let cm = l.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/);
     if (cm) { label = cm[1].toUpperCase(); l = cm[2]; }
     else {
@@ -211,18 +212,18 @@ function assemble(source) {
     }
 
     l = l.trim();
-    if (!l) { if (label) { instrs.push({label, op: null, args: []}); pendingDataLabel = label; } continue; }
+    if (!l) { if (label) { instrs.push({label, op: null, args: [], lineNo}); pendingDataLabel = label; } continue; }
 
     let pm = l.match(/^(\S+)\s*(.*)$/);
     let op = pm[1].toUpperCase();
     let argstr = pm[2].trim();
 
     if (op === 'SEGMENT' || op === 'ENDS' || op === 'ASSUME' || op === 'PROC' || op === 'ENDP' || op === 'END') {
-      if (label) instrs.push({label, op: null, args: []});
+      if (label) instrs.push({label, op: null, args: [], lineNo});
       pendingDataLabel = null;
       continue;
     }
-    if (op === 'ORG') { instrs.push({label, op: 'ORG', args: [argstr]}); pendingDataLabel = null; continue; }
+    if (op === 'ORG') { instrs.push({label, op: 'ORG', args: [argstr], lineNo}); pendingDataLabel = null; continue; }
 
     if (op === 'DB') {
       // one or more comma separated byte literals (only single value per our files, but support list)
@@ -235,8 +236,11 @@ function assemble(source) {
     }
 
     let args = argstr.length ? splitArgs(argstr) : [];
-    instrs.push({label, op, args});
+    instrs.push({label, op, args, lineNo});
     pendingDataLabel = null;
+   } catch (e) {
+    throw new Error(e.message + ' (line ' + lineNo + ')');
+   }
   }
 
   // Pass B: resolve labels to instruction indices (flatten, dropping label-only/null-op lines but keeping index mapping)
@@ -357,6 +361,7 @@ class Machine {
     const ins = this.prog[this.pc];
     const a = ins.args;
     let next = this.pc + 1;
+    try {
     switch (ins.op) {
       case 'ORG': break;
       case 'MOV': {
@@ -498,6 +503,11 @@ class Machine {
       case 'NOP': break;
       case 'INT': this.halted = true; return false;
       default: throw new Error('Unimplemented instruction: ' + ins.op);
+    }
+    if (next === undefined) throw new Error('Unknown label: ' + a[0]);
+    } catch (e) {
+      // annotate any runtime error with the source line of the failing instruction
+      throw new Error(e.message + (ins.lineNo ? ' (line ' + ins.lineNo + ')' : ''));
     }
     this.pc = next;
     this.steps++;
