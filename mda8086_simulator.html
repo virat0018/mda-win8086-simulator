@@ -56,6 +56,21 @@
   .keypad { display: grid; grid-template-columns: repeat(5, 40px); gap: 6px; }
   .keypad button { width: 40px; height: 30px; padding: 0; font-family: var(--mono); }
   .keypad button.wide { grid-column: span 1; }
+  /* MDA-007 elevator */
+  .elev-wrap { display: flex; gap: 26px; align-items: flex-start; }
+  .elev-shaft { position: relative; width: 50px; height: 244px; background: #0b0d12; border: 1px solid var(--border); border-radius: 6px; margin-left: 20px; }
+  .elev-cage { position: absolute; left: 5px; right: 5px; height: 50px; background: linear-gradient(#3a4658, #232b38); border: 1px solid #566578; border-radius: 3px; box-shadow: inset 0 0 6px #000; transition: bottom .12s linear; }
+  .elev-floorlabel { position: absolute; left: -20px; transform: translateY(-50%); font-size: 10px; color: var(--dim); font-family: var(--mono); }
+  .elev-tick { position: absolute; left: 0; right: 0; border-top: 1px dashed #262b36; }
+  .elev-sign { position: absolute; right: -15px; transform: translateY(-50%); width: 9px; height: 9px; border-radius: 50%; background: #20140a; border: 1px solid #3a2a1a; }
+  .elev-sign.on { background: radial-gradient(circle at 35% 30%, #ffe0a0, #ff9800); box-shadow: 0 0 6px #ff9800; }
+  .dir-led { width: 16px; height: 16px; border-radius: 50%; background: #161616; border: 1px solid #333; }
+  .dir-led.up.on { background: radial-gradient(circle at 35% 30%, #a5f5b8, var(--green)); box-shadow: 0 0 8px var(--green); }
+  .dir-led.down.on { background: radial-gradient(circle at 35% 30%, #ff8a8a, var(--red)); box-shadow: 0 0 8px var(--red); }
+  .floor-digit { font-family: var(--mono); font-size: 32px; font-weight: 700; color: #ff3b3b; background: #180404; border: 1px solid #3a1a1a; border-radius: 6px; width: 40px; height: 54px; display: flex; align-items: center; justify-content: center; text-shadow: 0 0 7px #ff3b3b; }
+  .floorbtns { display: flex; gap: 6px; margin-top: 4px; }
+  .floorbtns button { width: 38px; height: 30px; padding: 0; font-family: var(--mono); }
+  .floorbtns button.pressed { background: var(--accent); border-color: var(--accent); color: #fff; }
   .reg-table { font-family: var(--mono); font-size: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 12px; }
   .reg-table div span { color: var(--dim); }
   .flag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; margin-left: 6px; background: var(--panel2); }
@@ -83,6 +98,7 @@
         <option value="matrixcolor">Dot Matrix colour: red / green / orange (demo)</option>
         <option value="stepper">Stepper motor (MicroLab2)</option>
         <option value="keypad">Keypad read demo</option>
+        <option value="elevator">Elevator MDA-007: go to floor 3</option>
       </select>
     </div>
     <textarea id="src" spellcheck="false"></textarea>
@@ -159,6 +175,30 @@
         <div>
           <div class="small" style="margin-bottom:6px;">Keypad <span class="badge">port 01H</span></div>
           <div class="keypad" id="keypad"></div>
+        </div>
+      </div>
+
+      <div class="peri">
+        <div>
+          <div class="small" style="margin-bottom:6px;">Elevator — MDA-007 <span class="badge">A=20H in · B=22H 7seg · C=24H out · ctrl 26H</span></div>
+          <div class="elev-wrap">
+            <div class="elev-shaft" id="elevShaft"></div>
+            <div>
+              <div style="display:flex; gap:14px; align-items:center;">
+                <div style="display:flex; flex-direction:column; align-items:center; gap:3px;">
+                  <div class="dir-led up" id="elevUp"></div><span class="small">UP</span>
+                </div>
+                <div style="display:flex; flex-direction:column; align-items:center; gap:3px;">
+                  <div class="dir-led down" id="elevDown"></div><span class="small">DOWN</span>
+                </div>
+                <div style="display:flex; flex-direction:column; align-items:center; gap:3px;">
+                  <div class="floor-digit" id="elevFloorDigit">&nbsp;</div><span class="small">FLOOR</span>
+                </div>
+              </div>
+              <div class="floorbtns" id="floorbtns"></div>
+              <div class="footnote">Call buttons latch (click to press/release) — active-low on port A low nibble (1F=bit0…4F=bit3). Cage sensor = port A high nibble (one-hot: 1F=10H, 2F=20H, 3F=40H, 4F=80H). C port: low nibble motor/lamp (0F6H up+green, 0FFH stop), high nibble floor-sign LED.</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -751,6 +791,31 @@ JMP SCAN
 SCAN2: MOV CX,1
 RET
 CODE ENDS
+END`,
+elevator: `CODE SEGMENT
+ASSUME CS:CODE,DS:CODE,ES:CODE,SS:CODE
+; MDA-007 Elevator: move the cage up to floor 3, then stop,
+; show "3" on the FLOOR 7-seg and light the floor-3 sign LED.
+PPI   EQU 26H
+PORTC EQU 24H
+PORTB EQU 22H
+PORTA EQU 20H
+ORG 1000H
+MOV AL,90H
+OUT PPI,AL          ; A = input, B/C = output
+UP:
+MOV AL,0F6H         ; motor UP + green (UP) lamp
+OUT PORTC,AL
+IN  AL,PORTA        ; read cage-position sensor
+AND AL,0F0H
+CMP AL,40H          ; floor 3 reached? (sensor bit6)
+JNE UP
+MOV AL,0BFH         ; STOP + floor-3 sign LED
+OUT PORTC,AL
+MOV AL,0B0H         ; 7-seg "3"
+OUT PORTB,AL
+INT 3
+CODE ENDS
 END`
 };
 
@@ -815,6 +880,70 @@ KEY_LAYOUT.forEach(([label, code]) => {
   b.onclick = () => { pendingKey = code; };
   keypadEl.appendChild(b);
 });
+
+// ---- MDA-007 Elevator (8255 at ports 20H/22H/24H/26H) ----
+//   A (20H, IN)  : high nibble = cage-position sensor (one-hot: F1=10H,F2=20H,F3=40H,F4=80H);
+//                  low nibble  = call buttons, active-low (1F=bit0,2F=bit1,3F=bit2,4F=bit3).
+//   B (22H, OUT) : 7-segment FLOOR digit.
+//   C (24H, OUT) : low nibble = motor+lamp (bit0=down, bit1=up; up->green, down->red);
+//                  high nibble = floor-sign LED, active-low one-hot (bit4=F1 .. bit7=F4).
+let elevPos = 1;        // cage position, 1.0 (floor 1, bottom) .. 4.0 (floor 4, top)
+let elevMotor = 0;      // +1 up, -1 down, 0 stop
+let elevC = 0xFF;       // last byte written to C port (24H)
+let elevSeg = 0xFF;     // last byte written to B port (22H) — floor 7-seg
+let elevButtons = [false, false, false, false]; // 1F,2F,3F,4F latched-pressed
+const ELEV_SHAFT_H = 244, ELEV_CAGE_H = 50, ELEV_MARGIN = 4;
+const elevCageBottom = pos => ELEV_MARGIN + (pos - 1) / 3 * (ELEV_SHAFT_H - ELEV_CAGE_H - 2 * ELEV_MARGIN);
+const SEG7_DIGIT = {0xC0:'0',0xF9:'1',0xA4:'2',0xB0:'3',0x99:'4',0x92:'5',0x82:'6',0xF8:'7',0x80:'8',0x90:'9',0x00:'8'};
+
+const elevShaftEl = document.getElementById('elevShaft');
+const elevCageEl = document.createElement('div'); elevCageEl.className = 'elev-cage'; elevShaftEl.appendChild(elevCageEl);
+const elevSignEls = [];
+for (let f = 1; f <= 4; f++) {
+  const centre = elevCageBottom(f) + ELEV_CAGE_H / 2;
+  const tick = document.createElement('div'); tick.className = 'elev-tick'; tick.style.bottom = centre + 'px'; elevShaftEl.appendChild(tick);
+  const lab = document.createElement('div'); lab.className = 'elev-floorlabel'; lab.textContent = f + 'F'; lab.style.bottom = centre + 'px'; elevShaftEl.appendChild(lab);
+  const sign = document.createElement('div'); sign.className = 'elev-sign'; sign.style.bottom = centre + 'px'; elevShaftEl.appendChild(sign);
+  elevSignEls[f] = sign;
+}
+const floorbtnsEl = document.getElementById('floorbtns');
+[4, 3, 2, 1].forEach(f => {
+  const b = document.createElement('button');
+  b.textContent = f + 'F';
+  b.onclick = () => { elevButtons[f - 1] = !elevButtons[f - 1]; renderElevator(); };
+  b.id = 'elevBtn' + f;
+  floorbtnsEl.appendChild(b);
+});
+
+function elevReadPortA() {
+  let v = 0x0F;                                   // buttons idle = all 1 (not pressed)
+  for (let i = 0; i < 4; i++) if (elevButtons[i]) v &= ~(1 << i); // active-low
+  if (Math.abs(elevPos - Math.round(elevPos)) < 0.06) v |= (0x10 << (Math.round(elevPos) - 1)); // cage sensor
+  return v & 0xFF;
+}
+function renderElevator() {
+  elevCageEl.style.bottom = elevCageBottom(elevPos) + 'px';
+  document.getElementById('elevUp').classList.toggle('on', elevMotor > 0);
+  document.getElementById('elevDown').classList.toggle('on', elevMotor < 0);
+  document.getElementById('elevFloorDigit').textContent = (elevSeg in SEG7_DIGIT) ? SEG7_DIGIT[elevSeg] : '';
+  for (let f = 1; f <= 4; f++) elevSignEls[f].classList.toggle('on', ((elevC >> (3 + f)) & 1) === 0); // C bit(3+f): F1=bit4..F4=bit7, active-low
+  for (let f = 1; f <= 4; f++) document.getElementById('elevBtn' + f).classList.toggle('pressed', elevButtons[f - 1]);
+}
+function elevWriteC(val) {
+  elevC = val & 0xFF;
+  const up = (val & 0x02) !== 0, down = (val & 0x01) !== 0; // bit1=up, bit0=down
+  elevMotor = (up && !down) ? 1 : (down && !up ? -1 : 0);
+  if (elevMotor === 0 && Math.abs(elevPos - Math.round(elevPos)) < 0.12) elevPos = Math.round(elevPos); // snap to floor when stopping
+  renderElevator();
+}
+// advance the cage while the motor runs; call once per animation frame
+function stepElevator() {
+  if (elevMotor === 0) return;
+  elevPos += elevMotor * 0.03;
+  if (elevPos <= 1) { elevPos = 1; }
+  if (elevPos >= 4) { elevPos = 4; }
+  renderElevator();
+}
 
 function renderLEDs(byte) {
   // Active-HIGH: Fig 1-1 shows LED11-14 cathodes tied to GND (bit=1 -> lit). Confirmed by the
@@ -929,11 +1058,14 @@ function makeIO() {
         case 0x1A: matRed = val; renderMatrixDot(); break;             // CS1 PPIB - matrix RED data plane (active-low)
         case 0x1C: matScan = val; latchMatrixColumns(); renderMatrixDot(); break; // CS1 PPIC - column scan (latches the column into the persistence buffer)
         case 0x01: pendingKey = null; break;                           // OUT KEY = release/clear the key strobe (momentary key)
-        case 0x1D: case 0x1E: case 0x1F: case 0x1C && false: break;    // control/config regs, no visible effect
+        case 0x22: elevSeg = val; renderElevator(); break;             // MDA-007 elevator B port - floor 7-seg
+        case 0x24: elevWriteC(val); break;                             // MDA-007 elevator C port - motor / lamps / floor-sign
+        case 0x1D: case 0x1E: case 0x1F: case 0x20: case 0x26: case 0x1C && false: break; // control/config & elevator A(in) — no output effect
         default: break;
       }
     },
     in(port) {
+      if (port === 0x20) return elevReadPortA();                        // MDA-007 elevator A port - cage sensor + call buttons
       if (port === 0x01) {
         // Kit convention (matches the lab SCAN routines): bit7 = strobe, SET when NO key is
         // available, CLEARED when a key is ready. The key code (0x00-0x18) sits in the low bits,
@@ -982,7 +1114,8 @@ document.getElementById('btnReset').onclick = () => {
   machine = new Machine(asmd, makeIO());
   pendingKey = null; // release any held key so each run waits for a fresh press
   ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; colRed.fill(0xFF); colGreen.fill(0xFF); stepperStep = 0; lastCoilAngle = null; stepperDir = 0; stepperPending = 0; stepperRevSeen = 0;
-  renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot();
+  elevPos = 1; elevMotor = 0; elevC = 0xFF; elevSeg = 0xFF; elevButtons = [false, false, false, false];
+  renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot(); renderElevator();
   document.getElementById('rotor').style.transform = 'rotate(0deg)';
   document.getElementById('angleLabel').textContent = '0.0°';
   renderRegs(machine);
@@ -1023,6 +1156,7 @@ function loop() {
     const stepsPerFrame = speed * 400;
     let n = 0;
     while (n < stepsPerFrame && !machine.halted) { machine.step(); n++; }
+    stepElevator();           // advance the elevator cage while its motor is running
     renderRegs(machine);
     if (machine.halted) {
       setStatus('Halted (INT 3) after ' + machine.steps + ' steps.', 'ok');
@@ -1037,7 +1171,7 @@ function loop() {
   rafId = requestAnimationFrame(loop);
 }
 
-renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot();
+renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot(); renderElevator();
 
 </script>
 </body>

@@ -24,6 +24,7 @@ No install, no build, no dependencies. Just open the file:
   - **Bi-colour 8×8 dot matrix** — red + green planes → **orange**; supports both the **scan** (multiplexed) and **flash** (full-frame) display methods.
   - **Stepper motor** — direction-aware, **1.8° per step** (200 steps/revolution).
   - **Hex keypad** — momentary keys with the real kit's strobe convention.
+  - **Elevator control (MDA-007)** — a 4-floor elevator with an animated cage, up/down motor, green/red direction lamps, a FLOOR 7-segment, per-floor sign LEDs, and clickable call buttons.
 - **Error reporting with line numbers** — assemble and runtime errors tell you exactly which source line failed.
 - **Built-in examples** for every device, plus a bi-colour matrix demo.
 - Runs entirely client-side — a single self-contained HTML file.
@@ -40,6 +41,20 @@ No install, no build, no dependencies. Just open the file:
 
 > The main-board port map above was reverse-engineered and confirmed against real lab sources (`MATRIX_2/3/4.ASM`, the Lab 1 report, and the MicroLab 2/3 exercises) plus the kit manuals.
 
+### Elevator control — MDA-007 (separate 8255 at ports `20H`–`26H`)
+
+Control byte `90H` (port A = input, ports B & C = output).
+
+| Signal | Port / bits | Notes |
+|---|---|---|
+| **Cage position** | A (`20H`) high nibble, **input** | One-hot sensor: floor 1 = `10H`, floor 2 = `20H`, floor 3 = `40H`, floor 4 = `80H` (0 between floors). |
+| **Call buttons** | A (`20H`) low nibble, **input** | Active-low: 1F = bit0, 2F = bit1, 3F = bit2, 4F = bit3 (buttons **latch** — click to press/release). |
+| **Floor display** | B (`22H`), **output** | 7-segment digit for the current floor. |
+| **Motor + lamp** | C (`24H`) low nibble, **output** | bit1 = motor up (green lamp), bit0 = motor down (red lamp); e.g. `0F6H` = up, `0F9H` = down, `0FFH` = stop. |
+| **Floor-sign LED** | C (`24H`) high nibble, **output** | Active-low one-hot: floor 1 = bit4 … floor 4 = bit7 (e.g. `0BFH` = stop + floor-3 sign). |
+
+> The elevator port map comes from the MDA-007 manual (Fig. 4) and the Elevator lab report. Note: the manual's Fig. 4 shows the cage-position sensor as a *binary* count (floor 3 = `3×H`), but the lab report's tested code reads it as **one-hot** (floor 3 = `40H`); the simulator matches the report so the lab example programs run as written.
+
 ## Dot matrix: scan vs. flash
 
 The matrix supports the two methods taught in the lab:
@@ -55,6 +70,7 @@ The matrix supports the two methods taught in the lab:
 - **Dot Matrix colour** — cycles the whole matrix red → green → orange (flash method).
 - **Stepper motor** — steps the rotor with a rotating coil pattern.
 - **Keypad read demo** — reads a key and echoes its code.
+- **Elevator MDA-007** — drives the cage up to floor 3, stops, shows "3" and lights the floor-3 sign.
 
 ## Writing your own programs
 
