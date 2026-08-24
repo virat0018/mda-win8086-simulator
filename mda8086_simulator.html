@@ -508,6 +508,24 @@ class Machine {
         this.ZF = v === 0 ? 1 : 0; this.CF = 0;
         break;
       }
+      case 'OR': {
+        const dst = a[0]; const v = (this.resolve(dst) | this.resolve(a[1])) & (this.isByteReg(dst) ? 0xFF : 0xFFFF);
+        if (this.isByteReg(dst)) this.setByteReg(dst, v); else this.reg[dst.toUpperCase()] = v;
+        this.ZF = v === 0 ? 1 : 0; this.CF = 0;
+        break;
+      }
+      case 'XOR': {
+        const dst = a[0]; const v = (this.resolve(dst) ^ this.resolve(a[1])) & (this.isByteReg(dst) ? 0xFF : 0xFFFF);
+        if (this.isByteReg(dst)) this.setByteReg(dst, v); else this.reg[dst.toUpperCase()] = v;
+        this.ZF = v === 0 ? 1 : 0; this.CF = 0;
+        break;
+      }
+      case 'NOT': {
+        const dst = a[0]; const byte = this.isByteReg(dst);
+        const v = (~this.resolve(dst)) & (byte ? 0xFF : 0xFFFF); // NOT does not affect flags
+        if (byte) this.setByteReg(dst, v); else this.reg[dst.toUpperCase()] = v;
+        break;
+      }
       case 'TEST': {
         const v = this.resolve(a[0]) & this.resolve(a[1]);
         this.ZF = v === 0 ? 1 : 0; this.CF = 0;
