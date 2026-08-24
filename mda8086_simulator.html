@@ -241,7 +241,7 @@
               </div>
             </div>
           </div>
-          <div class="footnote">8 slide switches read on port A (switch on = 1). 8 output LEDs on port C (active-high: 00H = all off). FND shows the 7-seg code written to port B. Shares the 8255 (20–26H) with the elevator — pick the active board above.</div>
+          <div class="footnote">8 slide switches read on port A, <b>active-low</b> (idle = 1, switch on = 0). 8 output LEDs on port C (active-high: 00H = all off). FND shows the 7-seg code written to port B. Shares the 8255 (20–26H) with the elevator — pick the active board above.</div>
         </div>
       </div>
 
@@ -880,17 +880,20 @@ CODE ENDS
 END`,
 ioboard: `CODE SEGMENT
 ASSUME CS:CODE,DS:CODE,ES:CODE,SS:CODE
-; MDA-001 I/O board: read the 8 input switches and mirror them
-; onto the 8 output LEDs. Flip switches while it runs.
+; MDA-001 I/O board: light the LED in front of each switch that is ON.
+; Switches are active-low (idle=1), LEDs active-high, so NOT converts them.
 PPI   EQU 26H
 CPORT EQU 24H
 APORT EQU 20H
 ORG 1000H
 MOV AL,90H
 OUT PPI,AL          ; A = input (switches), C = output (LEDs)
+MOV AL,0
+OUT CPORT,AL        ; LEDs off to start
 L1:
-IN  AL,APORT        ; read the 8 switches
-OUT CPORT,AL        ; show them on the 8 LEDs (active-high)
+IN  AL,APORT        ; read the 8 switches (active-low)
+NOT AL              ; switch on (0) -> LED on (1)
+OUT CPORT,AL        ; drive the 8 LEDs
 JMP L1
 CODE ENDS
 END`
@@ -1047,7 +1050,7 @@ for (let b = 7; b >= 0; b--) {              // show bit7 (left) .. bit0 (right)
   ioSwEl.appendChild(sw);
   const lab = document.createElement('span'); lab.textContent = b; ioSwLabEl.appendChild(lab);
 }
-function ioReadA() { let v = 0; for (let b = 0; b < 8; b++) if (ioSwitch[b]) v |= (1 << b); return v; }
+function ioReadA() { let v = 0xFF; for (let b = 0; b < 8; b++) if (ioSwitch[b]) v &= ~(1 << b); return v & 0xFF; } // active-low: idle=1, switch on -> 0
 function renderIOboard() {
   for (let i = 0; i < 8; i++) document.getElementById('ioLed' + i).classList.toggle('on', ((ioLedByte >> i) & 1) === 1); // active-high
   for (let b = 0; b < 8; b++) document.getElementById('ioSw' + b).classList.toggle('on', ioSwitch[b]);

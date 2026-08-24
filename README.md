@@ -63,7 +63,7 @@ Control byte `90H` (port A = input, ports B & C = output). Shares the 8255 with 
 
 | Signal | Port | Notes |
 |---|---|---|
-| **Input switches** | A (`20H`), **input** | 8 slide switches; switch on = bit 1 (click to toggle). |
+| **Input switches** | A (`20H`), **input** | 8 slide switches, **active-low** (idle = 1, switch on = 0); click to toggle. |
 | **FND display** | B (`22H`), **output** | 7-segment digit. |
 | **Output LEDs** | C (`24H`), **output** | 8 LEDs, **active-high** (`00H` = all off). |
 
