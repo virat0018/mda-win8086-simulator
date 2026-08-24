@@ -935,15 +935,23 @@ function elevWriteC(val) {
   elevMotor = (up && !down) ? 1 : (down && !up ? -1 : 0);
   if (elevMotor === 0 && Math.abs(elevPos - Math.round(elevPos)) < 0.12) elevPos = Math.round(elevPos); // snap to floor when stopping
   renderElevator();
+  elevStartAnim();  // the 8255 output latch holds the motor command, so the cage keeps moving
 }
-// advance the cage while the motor runs; call once per animation frame
+// The cage is animated by the LATCHED C-port motor state, on its own animation frame — independent
+// of CPU execution. So once a program energises the motor (e.g. writes 0F6H) the cage keeps moving
+// until the output is changed or it reaches the top/bottom limit, even after the program has halted.
+let elevRAF = null;
+function elevMoving() { return (elevMotor > 0 && elevPos < 4) || (elevMotor < 0 && elevPos > 1); }
 function stepElevator() {
   if (elevMotor === 0) return;
   elevPos += elevMotor * 0.03;
-  if (elevPos <= 1) { elevPos = 1; }
-  if (elevPos >= 4) { elevPos = 4; }
+  if (elevPos < 1) elevPos = 1;
+  if (elevPos > 4) elevPos = 4;
   renderElevator();
 }
+function elevTick() { elevRAF = null; stepElevator(); if (elevMoving()) elevRAF = requestAnimationFrame(elevTick); }
+function elevStartAnim() { if (elevRAF === null && elevMoving()) elevRAF = requestAnimationFrame(elevTick); }
+function elevStop() { if (elevRAF !== null) { cancelAnimationFrame(elevRAF); elevRAF = null; } }
 
 function renderLEDs(byte) {
   // Active-HIGH: Fig 1-1 shows LED11-14 cathodes tied to GND (bit=1 -> lit). Confirmed by the
@@ -1098,6 +1106,7 @@ document.getElementById('btnAssemble').onclick = () => {
     asmd = assemble(srcEl.value);
     machine = new Machine(asmd, makeIO());
     pendingKey = null; // start fresh: no stale key press held over from earlier
+    elevStop(); elevPos = 1; elevMotor = 0; elevC = 0xFF; elevSeg = 0xFF; elevButtons = [false, false, false, false]; renderElevator();
     setStatus('Assembled OK. ' + asmd.program.length + ' instructions, ' + Object.keys(asmd.labels).length + ' labels.', 'ok');
     ['btnRun','btnStep','btnStop','btnReset'].forEach(id => document.getElementById(id).disabled = false);
     document.getElementById('btnStop').disabled = true;
@@ -1114,7 +1123,7 @@ document.getElementById('btnReset').onclick = () => {
   machine = new Machine(asmd, makeIO());
   pendingKey = null; // release any held key so each run waits for a fresh press
   ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; colRed.fill(0xFF); colGreen.fill(0xFF); stepperStep = 0; lastCoilAngle = null; stepperDir = 0; stepperPending = 0; stepperRevSeen = 0;
-  elevPos = 1; elevMotor = 0; elevC = 0xFF; elevSeg = 0xFF; elevButtons = [false, false, false, false];
+  elevStop(); elevPos = 1; elevMotor = 0; elevC = 0xFF; elevSeg = 0xFF; elevButtons = [false, false, false, false];
   renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot(); renderElevator();
   document.getElementById('rotor').style.transform = 'rotate(0deg)';
   document.getElementById('angleLabel').textContent = '0.0°';
@@ -1156,7 +1165,6 @@ function loop() {
     const stepsPerFrame = speed * 400;
     let n = 0;
     while (n < stepsPerFrame && !machine.halted) { machine.step(); n++; }
-    stepElevator();           // advance the elevator cage while its motor is running
     renderRegs(machine);
     if (machine.halted) {
       setStatus('Halted (INT 3) after ' + machine.steps + ' steps.', 'ok');
