@@ -25,6 +25,8 @@ No install, no build, no dependencies. Just open the file:
   - **Stepper motor** — direction-aware, **1.8° per step** (200 steps/revolution).
   - **Hex keypad** — momentary keys with the real kit's strobe convention.
   - **Elevator control (MDA-007)** — a 4-floor elevator with an animated cage, up/down motor, green/red direction lamps, a FLOOR 7-segment, per-floor sign LEDs, and clickable call buttons.
+  - **I/O control board (MDA-001)** — 8 clickable input slide switches, 8 output LEDs, and an FND 7-segment.
+- The elevator and the I/O board share the same 8255 (ports 20–26H), just like the real kit — an **"accessory on ports 20–26H" selector** picks which one is connected (loading either board's example selects it automatically).
 - **Error reporting with line numbers** — assemble and runtime errors tell you exactly which source line failed.
 - **Built-in examples** for every device, plus a bi-colour matrix demo.
 - Runs entirely client-side — a single self-contained HTML file.
@@ -55,6 +57,16 @@ Control byte `90H` (port A = input, ports B & C = output).
 
 > The elevator port map comes from the MDA-007 manual (Fig. 4) and the Elevator lab report. Note: the manual's Fig. 4 shows the cage-position sensor as a *binary* count (floor 3 = `3×H`), but the lab report's tested code reads it as **one-hot** (floor 3 = `40H`); the simulator matches the report so the lab example programs run as written.
 
+### I/O control board — MDA-001 (same 8255 at ports `20H`–`26H`)
+
+Control byte `90H` (port A = input, ports B & C = output). Shares the 8255 with the elevator — the **accessory selector** picks which board is connected.
+
+| Signal | Port | Notes |
+|---|---|---|
+| **Input switches** | A (`20H`), **input** | 8 slide switches; switch on = bit 1 (click to toggle). |
+| **FND display** | B (`22H`), **output** | 7-segment digit. |
+| **Output LEDs** | C (`24H`), **output** | 8 LEDs, **active-high** (`00H` = all off). |
+
 ## Dot matrix: scan vs. flash
 
 The matrix supports the two methods taught in the lab:
@@ -71,6 +83,7 @@ The matrix supports the two methods taught in the lab:
 - **Stepper motor** — steps the rotor with a rotating coil pattern.
 - **Keypad read demo** — reads a key and echoes its code.
 - **Elevator MDA-007** — drives the cage up to floor 3, stops, shows "3" and lights the floor-3 sign.
+- **I/O board MDA-001** — mirrors the 8 input switches onto the 8 output LEDs (flip switches while it runs).
 
 ## Writing your own programs
 

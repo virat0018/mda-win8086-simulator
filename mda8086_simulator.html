@@ -71,6 +71,16 @@
   .floorbtns { display: flex; gap: 6px; margin-top: 4px; }
   .floorbtns button { width: 38px; height: 30px; padding: 0; font-family: var(--mono); }
   .floorbtns button.pressed { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* MDA-001 I/O board */
+  .led.c-out    { background: #2a2410; border-color: #3a341a; }
+  .led.c-out.on { background: radial-gradient(circle at 35% 30%, #ffe98a, var(--amber)); box-shadow: 0 0 10px var(--amber); }
+  .ioswitches { display: flex; gap: 6px; }
+  .ioswitch { width: 22px; height: 36px; border-radius: 4px; border: 1px solid var(--border); background: #14171d; cursor: pointer; position: relative; padding: 0; }
+  .ioswitch .knob { position: absolute; left: 3px; right: 3px; height: 14px; border-radius: 2px; background: #444b59; bottom: 3px; transition: bottom .1s; }
+  .ioswitch.on { border-color: var(--accent); }
+  .ioswitch.on .knob { bottom: 17px; background: radial-gradient(circle at 40% 35%, #a9c7ff, var(--accent)); }
+  .swlabel { display: flex; gap: 6px; }
+  .swlabel span { width: 22px; text-align: center; font-size: 9px; color: var(--dim); font-family: var(--mono); }
   .reg-table { font-family: var(--mono); font-size: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 12px; }
   .reg-table div span { color: var(--dim); }
   .flag { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; margin-left: 6px; background: var(--panel2); }
@@ -99,6 +109,7 @@
         <option value="stepper">Stepper motor (MicroLab2)</option>
         <option value="keypad">Keypad read demo</option>
         <option value="elevator">Elevator MDA-007: go to floor 3</option>
+        <option value="ioboard">I/O board MDA-001: switches → LEDs</option>
       </select>
     </div>
     <textarea id="src" spellcheck="false"></textarea>
@@ -130,6 +141,14 @@
 
   <div class="panel">
     <h2>Board</h2>
+    <div class="row" style="margin:0 0 12px;">
+      <label class="small">Accessory on ports 20–26H:</label>
+      <select id="accSelect">
+        <option value="elevator">Elevator (MDA-007)</option>
+        <option value="io">I/O board (MDA-001)</option>
+      </select>
+      <span class="small" style="color:var(--dim);">— both share the 8255 at 20–26H (one board at a time, like the real kit)</span>
+    </div>
     <div class="devices">
 
       <div class="peri">
@@ -199,6 +218,30 @@
               <div class="footnote">Call buttons latch (click to press/release) — active-low on port A low nibble (1F=bit0…4F=bit3). Cage sensor = port A high nibble (one-hot: 1F=10H, 2F=20H, 3F=40H, 4F=80H). C port: low nibble motor/lamp (0F6H up+green, 0FFH stop), high nibble floor-sign LED.</div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="peri">
+        <div>
+          <div class="small" style="margin-bottom:6px;">I/O Control Board — MDA-001 <span class="badge">A=20H switches (in) · B=22H FND · C=24H LEDs (out) · ctrl 26H</span></div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <div>
+              <div class="small" style="margin-bottom:4px;">Output LEDs <span class="badge">C port 24H, active-high (bit7…bit0)</span></div>
+              <div class="leds" id="ioLeds"></div>
+            </div>
+            <div style="display:flex; gap:22px; align-items:flex-start;">
+              <div>
+                <div class="small" style="margin-bottom:4px;">Input switches <span class="badge">A port 20H</span></div>
+                <div class="ioswitches" id="ioSwitches"></div>
+                <div class="swlabel" id="ioSwLabels"></div>
+              </div>
+              <div class="seg-wrap">
+                <div class="small" style="margin-bottom:4px;">FND <span class="badge">B port 22H</span></div>
+                <div class="floor-digit" id="ioFnd">&nbsp;</div>
+              </div>
+            </div>
+          </div>
+          <div class="footnote">8 slide switches read on port A (switch on = 1). 8 output LEDs on port C (active-high: 00H = all off). FND shows the 7-seg code written to port B. Shares the 8255 (20–26H) with the elevator — pick the active board above.</div>
         </div>
       </div>
 
@@ -816,6 +859,22 @@ MOV AL,0B0H         ; 7-seg "3"
 OUT PORTB,AL
 INT 3
 CODE ENDS
+END`,
+ioboard: `CODE SEGMENT
+ASSUME CS:CODE,DS:CODE,ES:CODE,SS:CODE
+; MDA-001 I/O board: read the 8 input switches and mirror them
+; onto the 8 output LEDs. Flip switches while it runs.
+PPI   EQU 26H
+CPORT EQU 24H
+APORT EQU 20H
+ORG 1000H
+MOV AL,90H
+OUT PPI,AL          ; A = input (switches), C = output (LEDs)
+L1:
+IN  AL,APORT        ; read the 8 switches
+OUT CPORT,AL        ; show them on the 8 LEDs (active-high)
+JMP L1
+CODE ENDS
 END`
 };
 
@@ -953,6 +1012,32 @@ function elevTick() { elevRAF = null; stepElevator(); if (elevMoving()) elevRAF 
 function elevStartAnim() { if (elevRAF === null && elevMoving()) elevRAF = requestAnimationFrame(elevTick); }
 function elevStop() { if (elevRAF !== null) { cancelAnimationFrame(elevRAF); elevRAF = null; } }
 
+// ---- MDA-001 I/O Control Board (shares the 8255 at 20H/22H/24H/26H with the elevator) ----
+//   A (20H, IN)  : 8 slide switches (switch on = 1).
+//   B (22H, OUT) : FND 7-segment.
+//   C (24H, OUT) : 8 LEDs, active-HIGH (bit = 1 -> lit; 00H = all off).
+let activeAcc = 'elevator';                 // which board owns ports 20-26H
+let ioLedByte = 0x00, ioSegByte = 0xFF;     // C-port LEDs, B-port FND
+let ioSwitch = [false, false, false, false, false, false, false, false]; // bit7..bit0
+const ioLedsEl = document.getElementById('ioLeds');
+for (let i = 0; i < 8; i++) { const d = document.createElement('div'); d.className = 'led c-out'; d.id = 'ioLed' + i; ioLedsEl.appendChild(d); }
+const ioSwEl = document.getElementById('ioSwitches'), ioSwLabEl = document.getElementById('ioSwLabels');
+for (let b = 7; b >= 0; b--) {              // show bit7 (left) .. bit0 (right)
+  const sw = document.createElement('button'); sw.className = 'ioswitch'; sw.id = 'ioSw' + b;
+  sw.innerHTML = '<div class="knob"></div>';
+  sw.onclick = () => { ioSwitch[b] = !ioSwitch[b]; renderIOboard(); };
+  ioSwEl.appendChild(sw);
+  const lab = document.createElement('span'); lab.textContent = b; ioSwLabEl.appendChild(lab);
+}
+function ioReadA() { let v = 0; for (let b = 0; b < 8; b++) if (ioSwitch[b]) v |= (1 << b); return v; }
+function renderIOboard() {
+  for (let i = 0; i < 8; i++) document.getElementById('ioLed' + i).classList.toggle('on', ((ioLedByte >> i) & 1) === 1); // active-high
+  for (let b = 0; b < 8; b++) document.getElementById('ioSw' + b).classList.toggle('on', ioSwitch[b]);
+  document.getElementById('ioFnd').textContent = (ioSegByte in SEG7_DIGIT) ? SEG7_DIGIT[ioSegByte] : '';
+}
+const accSelect = document.getElementById('accSelect');
+accSelect.addEventListener('change', () => { activeAcc = accSelect.value; if (activeAcc === 'io') { elevStop(); elevMotor = 0; renderElevator(); } });
+
 function renderLEDs(byte) {
   // Active-HIGH: Fig 1-1 shows LED11-14 cathodes tied to GND (bit=1 -> lit). Confirmed by the
   // Lab1 source, where 11110000B is the all-off state (low nibble 0 = all four off).
@@ -1066,14 +1151,16 @@ function makeIO() {
         case 0x1A: matRed = val; renderMatrixDot(); break;             // CS1 PPIB - matrix RED data plane (active-low)
         case 0x1C: matScan = val; latchMatrixColumns(); renderMatrixDot(); break; // CS1 PPIC - column scan (latches the column into the persistence buffer)
         case 0x01: pendingKey = null; break;                           // OUT KEY = release/clear the key strobe (momentary key)
-        case 0x22: elevSeg = val; renderElevator(); break;             // MDA-007 elevator B port - floor 7-seg
-        case 0x24: elevWriteC(val); break;                             // MDA-007 elevator C port - motor / lamps / floor-sign
-        case 0x1D: case 0x1E: case 0x1F: case 0x20: case 0x26: case 0x1C && false: break; // control/config & elevator A(in) — no output effect
+        case 0x22:                                                     // B port (22H): elevator 7-seg OR I/O-board FND
+          if (activeAcc === 'io') { ioSegByte = val; renderIOboard(); } else { elevSeg = val; renderElevator(); } break;
+        case 0x24:                                                     // C port (24H): elevator motor/lamps OR I/O-board LEDs
+          if (activeAcc === 'io') { ioLedByte = val; renderIOboard(); } else { elevWriteC(val); } break;
+        case 0x1D: case 0x1E: case 0x1F: case 0x20: case 0x26: case 0x1C && false: break; // control/config & port-A (in) — no output effect
         default: break;
       }
     },
     in(port) {
-      if (port === 0x20) return elevReadPortA();                        // MDA-007 elevator A port - cage sensor + call buttons
+      if (port === 0x20) return activeAcc === 'io' ? ioReadA() : elevReadPortA(); // A port (20H): I/O switches OR elevator sensor+buttons
       if (port === 0x01) {
         // Kit convention (matches the lab SCAN routines): bit7 = strobe, SET when NO key is
         // available, CLEARED when a key is ready. The key code (0x00-0x18) sits in the low bits,
@@ -1093,6 +1180,12 @@ const srcEl = document.getElementById('src');
 const statusEl = document.getElementById('status');
 document.getElementById('exampleSelect').addEventListener('change', e => {
   if (EXAMPLES[e.target.value]) srcEl.value = EXAMPLES[e.target.value];
+  // auto-select the accessory that owns ports 20-26H for that example
+  if (e.target.value === 'ioboard' || e.target.value === 'elevator') {
+    activeAcc = (e.target.value === 'ioboard') ? 'io' : 'elevator';
+    accSelect.value = activeAcc;
+    if (activeAcc === 'io') { elevStop(); elevMotor = 0; renderElevator(); }
+  }
 });
 srcEl.value = EXAMPLES.led;
 
@@ -1107,6 +1200,7 @@ document.getElementById('btnAssemble').onclick = () => {
     machine = new Machine(asmd, makeIO());
     pendingKey = null; // start fresh: no stale key press held over from earlier
     elevStop(); elevPos = 1; elevMotor = 0; elevC = 0xFF; elevSeg = 0xFF; elevButtons = [false, false, false, false]; renderElevator();
+    ioLedByte = 0x00; ioSegByte = 0xFF; renderIOboard();
     setStatus('Assembled OK. ' + asmd.program.length + ' instructions, ' + Object.keys(asmd.labels).length + ' labels.', 'ok');
     ['btnRun','btnStep','btnStop','btnReset'].forEach(id => document.getElementById(id).disabled = false);
     document.getElementById('btnStop').disabled = true;
@@ -1124,7 +1218,8 @@ document.getElementById('btnReset').onclick = () => {
   pendingKey = null; // release any held key so each run waits for a fresh press
   ledState = 0; segState = 0xFF; matRed = 0xFF; matGreen = 0xFF; matScan = 0; colRed.fill(0xFF); colGreen.fill(0xFF); stepperStep = 0; lastCoilAngle = null; stepperDir = 0; stepperPending = 0; stepperRevSeen = 0;
   elevStop(); elevPos = 1; elevMotor = 0; elevC = 0xFF; elevSeg = 0xFF; elevButtons = [false, false, false, false];
-  renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot(); renderElevator();
+  ioLedByte = 0x00; ioSegByte = 0xFF; ioSwitch = [false, false, false, false, false, false, false, false];
+  renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot(); renderElevator(); renderIOboard();
   document.getElementById('rotor').style.transform = 'rotate(0deg)';
   document.getElementById('angleLabel').textContent = '0.0°';
   renderRegs(machine);
@@ -1179,7 +1274,7 @@ function loop() {
   rafId = requestAnimationFrame(loop);
 }
 
-renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot(); renderElevator();
+renderLEDs(0x00); renderSevenSeg(0xFF); renderMatrixDot(); renderElevator(); renderIOboard();
 
 </script>
 </body>
