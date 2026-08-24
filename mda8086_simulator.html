@@ -224,24 +224,17 @@
       <div class="peri">
         <div>
           <div class="small" style="margin-bottom:6px;">I/O Control Board — MDA-001 <span class="badge">A=20H switches (in) · B=22H FND · C=24H LEDs (out) · ctrl 26H</span></div>
-          <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; gap:24px; align-items:flex-start;">
             <div>
-              <div class="small" style="margin-bottom:4px;">Output LEDs <span class="badge">C port 24H, active-high (bit7…bit0)</span></div>
-              <div class="leds" id="ioLeds"></div>
+              <div class="small" style="margin-bottom:6px;">Each LED (C, out) sits above its switch (A, in) <span class="badge">bit7 → bit0</span></div>
+              <div id="ioColumns" style="display:flex; gap:9px;"></div>
             </div>
-            <div style="display:flex; gap:22px; align-items:flex-start;">
-              <div>
-                <div class="small" style="margin-bottom:4px;">Input switches <span class="badge">A port 20H</span></div>
-                <div class="ioswitches" id="ioSwitches"></div>
-                <div class="swlabel" id="ioSwLabels"></div>
-              </div>
-              <div class="seg-wrap">
-                <div class="small" style="margin-bottom:4px;">FND <span class="badge">B port 22H</span></div>
-                <div class="floor-digit" id="ioFnd">&nbsp;</div>
-              </div>
+            <div class="seg-wrap">
+              <div class="small" style="margin-bottom:6px;">FND <span class="badge">B port 22H</span></div>
+              <div class="floor-digit" id="ioFnd">&nbsp;</div>
             </div>
           </div>
-          <div class="footnote">8 slide switches read on port A, <b>active-low</b> (idle = 1, switch on = 0). 8 output LEDs on port C (active-high: 00H = all off). FND shows the 7-seg code written to port B. Shares the 8255 (20–26H) with the elevator — pick the active board above.</div>
+          <div class="footnote">Each output LED (C port, active-high) is directly above its input switch (A port, active-low: idle = 1, on = 0), from bit 7 (left) to bit 0 (right). Click a switch to light the LED above it. Shares the 8255 (20–26H) with the elevator — pick the active board above.</div>
         </div>
       </div>
 
@@ -1039,21 +1032,26 @@ function elevStop() { if (elevRAF !== null) { cancelAnimationFrame(elevRAF); ele
 //   C (24H, OUT) : 8 LEDs, active-HIGH (bit = 1 -> lit; 00H = all off).
 let activeAcc = 'elevator';                 // which board owns ports 20-26H
 let ioLedByte = 0x00, ioSegByte = 0xFF;     // C-port LEDs, B-port FND
-let ioSwitch = [false, false, false, false, false, false, false, false]; // bit7..bit0
-const ioLedsEl = document.getElementById('ioLeds');
-for (let i = 0; i < 8; i++) { const d = document.createElement('div'); d.className = 'led c-out'; d.id = 'ioLed' + i; ioLedsEl.appendChild(d); }
-const ioSwEl = document.getElementById('ioSwitches'), ioSwLabEl = document.getElementById('ioSwLabels');
-for (let b = 7; b >= 0; b--) {              // show bit7 (left) .. bit0 (right)
+let ioSwitch = [false, false, false, false, false, false, false, false]; // index = bit number
+// One column per bit, bit7 (left) .. bit0 (right): output LED on top, its input switch below, bit label.
+const ioColsEl = document.getElementById('ioColumns');
+for (let b = 7; b >= 0; b--) {
+  const col = document.createElement('div');
+  col.style.cssText = 'display:flex; flex-direction:column; align-items:center; gap:6px;';
+  const led = document.createElement('div'); led.className = 'led c-out'; led.id = 'ioLed' + b;
   const sw = document.createElement('button'); sw.className = 'ioswitch'; sw.id = 'ioSw' + b;
   sw.innerHTML = '<div class="knob"></div>';
   sw.onclick = () => { ioSwitch[b] = !ioSwitch[b]; renderIOboard(); };
-  ioSwEl.appendChild(sw);
-  const lab = document.createElement('span'); lab.textContent = b; ioSwLabEl.appendChild(lab);
+  const lab = document.createElement('span'); lab.className = 'small'; lab.style.color = 'var(--dim)'; lab.textContent = b;
+  col.appendChild(led); col.appendChild(sw); col.appendChild(lab);
+  ioColsEl.appendChild(col);
 }
 function ioReadA() { let v = 0xFF; for (let b = 0; b < 8; b++) if (ioSwitch[b]) v &= ~(1 << b); return v & 0xFF; } // active-low: idle=1, switch on -> 0
 function renderIOboard() {
-  for (let i = 0; i < 8; i++) document.getElementById('ioLed' + i).classList.toggle('on', ((ioLedByte >> i) & 1) === 1); // active-high
-  for (let b = 0; b < 8; b++) document.getElementById('ioSw' + b).classList.toggle('on', ioSwitch[b]);
+  for (let b = 0; b < 8; b++) {
+    document.getElementById('ioLed' + b).classList.toggle('on', ((ioLedByte >> b) & 1) === 1); // active-high
+    document.getElementById('ioSw' + b).classList.toggle('on', ioSwitch[b]);
+  }
   document.getElementById('ioFnd').textContent = (ioSegByte in SEG7_DIGIT) ? SEG7_DIGIT[ioSegByte] : '';
 }
 const accSelect = document.getElementById('accSelect');
