@@ -64,8 +64,7 @@ Control byte `90H` (port A = input, ports B & C = output). Shares the 8255 with 
 | Signal | Port | Notes |
 |---|---|---|
 | **Input switches** | A (`20H`), **input** | 8 slide switches, **active-low** (idle = 1, switch on = 0); click to toggle. |
-| **FND display** | B (`22H`), **output** | 7-segment digit. |
-| **Output LEDs** | C (`24H`), **output** | 8 LEDs, **active-high** (`00H` = all off). |
+| **Output LEDs + FND** | C (`24H`), **output** | Port C drives the 8 discrete LEDs **and** the 7-segment FND on the same 8 segment lines (per the manual circuit), **active-high / common-cathode** (`00H` = all off; e.g. `3FH`=`0`, `06H`=`1`, `07H`=`7`). Port B is unused. |
 
 ## Dot matrix: scan vs. flash
 

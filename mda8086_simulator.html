@@ -223,14 +223,14 @@
 
       <div class="peri">
         <div>
-          <div class="small" style="margin-bottom:6px;">I/O Control Board — MDA-001 <span class="badge">A=20H switches (in) · B=22H FND · C=24H LEDs (out) · ctrl 26H</span></div>
+          <div class="small" style="margin-bottom:6px;">I/O Control Board — MDA-001 <span class="badge">A=20H switches (in) · C=24H LEDs + FND (out) · ctrl 26H</span></div>
           <div style="display:flex; gap:24px; align-items:flex-start;">
             <div>
               <div class="small" style="margin-bottom:6px;">Each LED (C, out) sits above its switch (A, in) <span class="badge">bit7 → bit0</span></div>
               <div id="ioColumns" style="display:flex; gap:9px;"></div>
             </div>
             <div class="seg-wrap">
-              <div class="small" style="margin-bottom:6px;">FND <span class="badge">B port 22H</span></div>
+              <div class="small" style="margin-bottom:6px;">FND <span class="badge">C port 24H (same lines as the LEDs)</span></div>
               <div class="floor-digit" id="ioFnd">&nbsp;</div>
             </div>
           </div>
@@ -1047,12 +1047,16 @@ for (let b = 7; b >= 0; b--) {
   ioColsEl.appendChild(col);
 }
 function ioReadA() { let v = 0xFF; for (let b = 0; b < 8; b++) if (ioSwitch[b]) v &= ~(1 << b); return v & 0xFF; } // active-low: idle=1, switch on -> 0
+// Common-CATHODE 7-seg font (active-high: bit=1 lights the segment, a=bit0..g=bit6) — the MDA-001 FND.
+const CC7_DIGIT = {0x3F:'0',0x06:'1',0x5B:'2',0x4F:'3',0x66:'4',0x6D:'5',0x7D:'6',0x07:'7',0x7F:'8',0x6F:'9',0x00:''};
 function renderIOboard() {
+  // Port C (24H) drives the 8 discrete LEDs AND the FND (they share the 8 segment lines, active-high).
   for (let b = 0; b < 8; b++) {
     document.getElementById('ioLed' + b).classList.toggle('on', ((ioLedByte >> b) & 1) === 1); // active-high
     document.getElementById('ioSw' + b).classList.toggle('on', ioSwitch[b]);
   }
-  document.getElementById('ioFnd').textContent = (ioSegByte in SEG7_DIGIT) ? SEG7_DIGIT[ioSegByte] : '';
+  const seg = ioLedByte & 0x7F; // segments a..g (ignore dp)
+  document.getElementById('ioFnd').textContent = (seg in CC7_DIGIT) ? CC7_DIGIT[seg] : '';
 }
 const accSelect = document.getElementById('accSelect');
 accSelect.addEventListener('change', () => { activeAcc = accSelect.value; if (activeAcc === 'io') { elevStop(); elevMotor = 0; renderElevator(); } });
@@ -1170,9 +1174,9 @@ function makeIO() {
         case 0x1A: matRed = val; renderMatrixDot(); break;             // CS1 PPIB - matrix RED data plane (active-low)
         case 0x1C: matScan = val; latchMatrixColumns(); renderMatrixDot(); break; // CS1 PPIC - column scan (latches the column into the persistence buffer)
         case 0x01: pendingKey = null; break;                           // OUT KEY = release/clear the key strobe (momentary key)
-        case 0x22:                                                     // B port (22H): elevator 7-seg OR I/O-board FND
-          if (activeAcc === 'io') { ioSegByte = val; renderIOboard(); } else { elevSeg = val; renderElevator(); } break;
-        case 0x24:                                                     // C port (24H): elevator motor/lamps OR I/O-board LEDs
+        case 0x22:                                                     // B port (22H): elevator 7-seg (I/O board: B unused)
+          if (activeAcc !== 'io') { elevSeg = val; renderElevator(); } break;
+        case 0x24:                                                     // C port (24H): elevator motor/lamps OR I/O-board LEDs + FND (shared segment lines)
           if (activeAcc === 'io') { ioLedByte = val; renderIOboard(); } else { elevWriteC(val); } break;
         case 0x1D: case 0x1E: case 0x1F: case 0x20: case 0x26: case 0x1C && false: break; // control/config & port-A (in) — no output effect
         default: break;
