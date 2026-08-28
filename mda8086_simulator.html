@@ -164,7 +164,6 @@
         <div>
           <div class="small" style="margin-bottom:6px;">LEDs <span class="badge">PPIB (port 1BH), bits 0–3, active-high</span></div>
           <div class="leds" id="leds"></div>
-          <div class="footnote">Physical order (left→right): <b>Red, Green, Yellow, Red</b> — confirmed by the manual's LED demo (p.45) and Fig 1-1 (LED11–14 via R34–37 to GND ⇒ active-high). Bit map from Lab1 source (image5/image8): PPIB bit0=Red, bit1=Green, bit2=Yellow, bit3=Red. The 4th LED (bit3, 2nd red) is never driven by the lab task, so its bit is inferred by elimination.</div>
         </div>
       </div>
 
@@ -227,7 +226,6 @@
                 </div>
               </div>
               <div class="floorbtns" id="floorbtns"></div>
-              <div class="footnote">Call buttons latch (click to press/release) — active-low on port A low nibble (1F=bit0…4F=bit3). Cage sensor = port A high nibble (one-hot: 1F=10H, 2F=20H, 3F=40H, 4F=80H). C port: low nibble motor/lamp (0F6H up+green, 0FFH stop), high nibble floor-sign LED.</div>
             </div>
           </div>
         </div>
@@ -246,7 +244,6 @@
               <div class="floor-digit" id="ioFnd">&nbsp;</div>
             </div>
           </div>
-          <div class="footnote">Each output LED (C port, active-high) is directly above its input switch (A port, active-low: idle = 1, on = 0), from bit 7 (left) to bit 0 (right). Click a switch to light the LED above it. Shares the 8255 (20–26H) with the elevator — pick the active board above.</div>
         </div>
       </div>
 
