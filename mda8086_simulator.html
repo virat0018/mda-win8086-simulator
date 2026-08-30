@@ -8,13 +8,16 @@
     --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
     --text: #e6e8ec; --dim: #8b93a3; --accent: #4f8cff; --green: #22c55e;
     --amber: #f5b301; --red: #ef4444; --mono: 'SF Mono', Menlo, Consolas, monospace;
+    --src-w: 400px; /* width of the Assembly Source column; set live by the draggable divider */
   }
   * { box-sizing: border-box; }
   body { background: var(--bg); color: var(--text); font-family: -apple-system, Segoe UI, sans-serif; margin: 0; padding: 16px; }
   h1 { font-size: 15px; font-weight: 600; margin: 0 0 2px; }
   .sub { color: var(--dim); font-size: 12px; margin-bottom: 14px; }
-  .layout { display: grid; grid-template-columns: minmax(320px, 400px) 1fr; gap: 14px; align-items: start; }
-  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+  .layout { display: grid; grid-template-columns: var(--src-w) 6px 1fr; gap: 10px; align-items: start; }
+  .divider { align-self: stretch; width: 6px; min-height: 60px; background: var(--border); border-radius: 3px; cursor: col-resize; transition: background .1s; }
+  .divider:hover, .divider.dragging { background: var(--accent); }
+  @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } .divider { display: none; } }
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); margin: 0 0 10px; font-weight: 600; }
   .editor-wrap { display: flex; height: 320px; background: #0b0d12; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; resize: vertical; }
@@ -146,6 +149,8 @@
       <span class="badge" id="stepCount">0 steps</span>
     </div>
   </div>
+
+  <div class="divider" id="divider" title="Drag to resize the Assembly Source panel"></div>
 
   <div class="panel">
     <h2>Board</h2>
@@ -1221,6 +1226,31 @@ function updateGutter() {
 }
 srcEl.addEventListener('input', updateGutter);
 srcEl.addEventListener('scroll', () => { gutterEl.scrollTop = srcEl.scrollTop; });
+
+// --- draggable divider: resize the Assembly Source column (drag right = wider) ---
+const layoutEl = document.querySelector('.layout');
+const dividerEl = document.getElementById('divider');
+let dividerDrag = false;
+dividerEl.addEventListener('pointerdown', e => {
+  dividerDrag = true; dividerEl.setPointerCapture(e.pointerId);
+  dividerEl.classList.add('dragging');
+  document.body.style.userSelect = 'none'; document.body.style.cursor = 'col-resize';
+  e.preventDefault();
+});
+dividerEl.addEventListener('pointermove', e => {
+  if (!dividerDrag) return;
+  const rect = layoutEl.getBoundingClientRect();
+  let w = e.clientX - rect.left;                         // source width = pointer x within the layout
+  w = Math.max(240, Math.min(rect.width - 320, w));      // clamp: keep the source and board usable
+  layoutEl.style.setProperty('--src-w', w + 'px');
+});
+function endDividerDrag() {
+  if (!dividerDrag) return;
+  dividerDrag = false; dividerEl.classList.remove('dragging');
+  document.body.style.userSelect = ''; document.body.style.cursor = '';
+}
+dividerEl.addEventListener('pointerup', endDividerDrag);
+dividerEl.addEventListener('pointercancel', endDividerDrag);
 document.getElementById('exampleSelect').addEventListener('change', e => {
   if (EXAMPLES[e.target.value]) { srcEl.value = EXAMPLES[e.target.value]; updateGutter(); }
   // auto-select the accessory that owns ports 20-26H for that example
