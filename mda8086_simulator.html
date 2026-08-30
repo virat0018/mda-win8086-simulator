@@ -245,8 +245,17 @@
               <div id="ioColumns" style="display:flex; gap:9px;"></div>
             </div>
             <div class="seg-wrap">
-              <div class="small" style="margin-bottom:6px;">FND <span class="badge">C port 24H (same lines as the LEDs)</span></div>
-              <div class="floor-digit" id="ioFnd">&nbsp;</div>
+              <div class="small" style="margin-bottom:6px;">FND <span class="badge">C port 24H — segments a..g = bit0..bit6</span></div>
+              <svg width="52" height="86" viewBox="0 0 60 100" id="ioFnd">
+                <polygon class="seg" id="io-seg-a" points="12,6 44,6 38,12 18,12"/>
+                <polygon class="seg" id="io-seg-b" points="46,8 52,14 46,46 40,42 40,16"/>
+                <polygon class="seg" id="io-seg-c" points="46,52 52,58 46,90 40,86 40,58"/>
+                <polygon class="seg" id="io-seg-d" points="12,92 44,92 38,86 18,86"/>
+                <polygon class="seg" id="io-seg-e" points="8,52 14,58 14,86 8,90 2,58"/>
+                <polygon class="seg" id="io-seg-f" points="8,8 14,14 14,42 8,46 2,14"/>
+                <polygon class="seg" id="io-seg-g" points="12,46 44,46 38,52 18,52 12,52 18,42"/>
+                <circle class="seg" id="io-seg-dp" cx="54" cy="90" r="3"/>
+              </svg>
             </div>
           </div>
         </div>
@@ -1062,16 +1071,17 @@ for (let b = 7; b >= 0; b--) {
   ioColsEl.appendChild(col);
 }
 function ioReadA() { let v = 0xFF; for (let b = 0; b < 8; b++) if (ioSwitch[b]) v &= ~(1 << b); return v & 0xFF; } // active-low: idle=1, switch on -> 0
-// Common-CATHODE 7-seg font (active-high: bit=1 lights the segment, a=bit0..g=bit6) — the MDA-001 FND.
-const CC7_DIGIT = {0x3F:'0',0x06:'1',0x5B:'2',0x4F:'3',0x66:'4',0x6D:'5',0x7D:'6',0x07:'7',0x7F:'8',0x6F:'9',0x00:''};
+// Port-C bit -> FND segment (common-cathode / active-high: bit=1 lights that segment). a=bit0..g=bit6, dp=bit7.
+const IO_SEG = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'dp'];
 function renderIOboard() {
-  // Port C (24H) drives the 8 discrete LEDs AND the FND (they share the 8 segment lines, active-high).
+  // Port C (24H) drives the 8 discrete LEDs AND the 7-seg FND on the same 8 segment lines (active-high).
   for (let b = 0; b < 8; b++) {
-    document.getElementById('ioLed' + b).classList.toggle('on', ((ioLedByte >> b) & 1) === 1); // active-high
+    const on = ((ioLedByte >> b) & 1) === 1;
+    document.getElementById('ioLed' + b).classList.toggle('on', on);       // discrete LED
     document.getElementById('ioSw' + b).classList.toggle('on', ioSwitch[b]);
+    const segEl = document.getElementById('io-seg-' + IO_SEG[b]);          // real FND segment
+    if (segEl) segEl.classList.toggle('on', on);
   }
-  const seg = ioLedByte & 0x7F; // segments a..g (ignore dp)
-  document.getElementById('ioFnd').textContent = (seg in CC7_DIGIT) ? CC7_DIGIT[seg] : '';
 }
 const accSelect = document.getElementById('accSelect');
 accSelect.addEventListener('change', () => { activeAcc = accSelect.value; if (activeAcc === 'io') { elevStop(); elevMotor = 0; renderElevator(); } });
